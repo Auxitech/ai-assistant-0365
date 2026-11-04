@@ -1,0 +1,65 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mailrouter
+  labels: { app: mailrouter }
+spec:
+  # EXACTLY ONE POD. Two pods would poll the same mailbox and send duplicate replies/forwards,
+  # and SQLite on a ReadWriteOnce volume can't be shared. Never scale this up.
+  replicas: 1
+  strategy:
+    type: Recreate          # old pod stops before the new one starts (no overlap)
+  selector:
+    matchLabels: { app: mailrouter }
+  template:
+    metadata:
+      labels: { app: mailrouter }
+    spec:
+      imagePullSecrets:
+        - name: regcred
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1654     # "app" user of the mcr.microsoft.com/dotnet/aspnet image
+        runAsGroup: 1654
+        fsGroup: 1654       # makes the volume writable for that user
+        seccompProfile: { type: RuntimeDefault }
+      containers:
+        - name: mailrouter
+          image: mailrouter  # replaced by kustomization.yaml "images"
+          ports:
+            - { name: http, containerPort: 8080 }
+          envFrom:
+            - secretRef:
+                name: mailrouter-env   # ADMIN__PASSWORD, GRAPH__*, ANTHROPIC_* (created from .env)
+          env:
+            - { name: DataDirectory, value: /data }
+            # Trust X-Forwarded-Proto/For from the ingress so the app knows it's served over HTTPS.
+            - { name: ASPNETCORE_FORWARDEDHEADERS_ENABLED, value: "true" }
+            - { name: TZ, value: Europe/Zurich }
+          volumeMounts:
+            - { name: data, mountPath: /data }
+            - { name: tmp, mountPath: /tmp }
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: ["ALL"] }
+          resources:
+            requests: { cpu: 50m, memory: 160Mi }
+            limits: { memory: 512Mi }
+          startupProbe:
+            httpGet: { path: /health, port: http }
+            periodSeconds: 3
+            failureThreshold: 40
+          readinessProbe:
+            httpGet: { path: /health, port: http }
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: { path: /health, port: http }
+            periodSeconds: 30
+            failureThreshold: 3
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: mailrouter-data
+        - name: tmp
+          emptyDir: {}

@@ -1,0 +1,25 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: mailrouter-ingress
+  annotations:
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+    # The dashboard shows email content: consider restricting it to office/VPN IPs, e.g.
+    # nginx.ingress.kubernetes.io/whitelist-source-range: "203.0.113.10/32"
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts:
+        - mailrouter.centimo.ch
+      secretName: centimo-tls-mailrouter
+  rules:
+    - host: mailrouter.centimo.ch
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: mailrouter
+                port:
+                  number: 80

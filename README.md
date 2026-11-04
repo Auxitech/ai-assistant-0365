@@ -78,6 +78,10 @@ Reply template placeholders: `{SenderName}`, `{SenderEmail}`, `{ForwardTo}`, `{S
 
 Watch the dashboard in dry-run for a few days. When the decisions look right, turn **Dry-run** off in Settings.
 
+## Kubernetes
+
+Manifests and a step-by-step guide are in [deploy/k8s/](deploy/k8s/README.md): `kubectl apply -k deploy/k8s` after setting your registry, hostname and ingress class. Run only **one** instance in total (Docker or Kubernetes, never both).
+
 ## Configuration reference
 
 | Env var | Meaning |

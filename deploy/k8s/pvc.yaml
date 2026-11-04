@@ -1,0 +1,10 @@
+# SQLite DB, Microsoft sign-in token cache and cookie keys. Default storage class (same as grafana/sonarqube).
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: mailrouter-data
+spec:
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests:
+      storage: 1Gi

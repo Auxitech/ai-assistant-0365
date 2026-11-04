@@ -8,3 +8,4 @@ data/
 *.db-shm
 *.db-wal
 msal_cache.bin
+*.tgz
