@@ -73,6 +73,8 @@ public class GraphAuthService
     public async Task<IAccount?> GetAccountAsync() =>
         _app == null ? null : (await _app.GetAccountsAsync()).FirstOrDefault();
 
+    public async Task<string?> GetTenantIdAsync() => (await GetAccountAsync())?.HomeAccountId?.TenantId;
+
     /// <summary>Returns an access token, or null if not signed in.</summary>
     public async Task<string?> GetTokenAsync(CancellationToken ct = default)
     {

@@ -1,5 +1,6 @@
 @page
 @model SettingsModel
+@using MailRouter.Web.Services
 @{
     ViewData["Title"] = "Settings";
 }
@@ -34,6 +35,37 @@
     </div>
 </div>
 
+<div class="card my-3" style="max-width:860px">
+    <div class="card-header">Try the AI triage</div>
+    <div class="card-body">
+        <form method="post" asp-page-handler="TryAi" class="row g-2">
+            <div class="col-md-6"><input asp-for="TrySender" class="form-control" placeholder="sender@cdb1.ch" /></div>
+            <div class="col-md-6"><input asp-for="TrySubject" class="form-control" placeholder="Subject" /></div>
+            <div class="col-12"><textarea asp-for="TryBody" class="form-control" rows="4" placeholder="Paste a message to see how it would be classified. Nothing is sent."></textarea></div>
+            <div class="col-12"><button class="btn btn-outline-primary">Classify</button></div>
+        </form>
+        @if (Model.TryError != null)
+        {
+            <div class="alert alert-warning mt-3 mb-0">@Model.TryError</div>
+        }
+        @if (Model.TryResult is { } v)
+        {
+            var outcome = v.IsSensitive
+                ? "🔒 Sensitive → not forwarded, no reply, stays unread in your inbox."
+                : v.IsSupportRequest ? "🛟 Help request → the matching rule applies (forward/reply)."
+                : "💬 Not a help request → skipped on rules with \"Only act on real help requests\".";
+            <div class="alert @(v.IsSensitive ? "alert-warning" : v.IsSupportRequest ? "alert-success" : "alert-secondary") mt-3 mb-0">
+                <div><strong>@outcome</strong></div>
+                <div class="small mt-1">
+                    Category: <code>@v.Category</code> · confidence @v.Confidence.ToString("P0") · language @v.Language<br />
+                    Summary: @v.Summary
+                    @if (v.IsSensitive && !string.IsNullOrWhiteSpace(v.SensitiveReason)) { <br /><span>Why sensitive: @v.SensitiveReason</span> }
+                </div>
+            </div>
+        }
+    </div>
+</div>
+
 <form method="post" asp-page-handler="Save" style="max-width:860px">
     <div class="card">
         <div class="card-header">Behaviour</div>
@@ -52,6 +84,9 @@
                 <div class="form-check"><input asp-for="Input.ProcessEmail" class="form-check-input" /><label asp-for="Input.ProcessEmail" class="form-check-label">Process email (Inbox)</label></div>
                 <div class="form-check"><input asp-for="Input.ProcessTeams" class="form-check-input" /><label asp-for="Input.ProcessTeams" class="form-check-label">Process Teams chats</label></div>
                 <div class="form-check"><input asp-for="Input.TeamsOneOnOneOnly" class="form-check-input" /><label asp-for="Input.TeamsOneOnOneOnly" class="form-check-label">Teams: 1:1 chats only</label></div>
+                <div class="form-check mt-2"><input asp-for="Input.MarkEmailAsRead" class="form-check-input" /><label asp-for="Input.MarkEmailAsRead" class="form-check-label">Mark handled emails as read</label></div>
+                <div class="form-check"><input asp-for="Input.MarkTeamsAsRead" class="form-check-input" /><label asp-for="Input.MarkTeamsAsRead" class="form-check-label">Mark Teams chat as read when handled</label></div>
+                <div class="form-text">Only messages actually forwarded/replied to. Skipped and dry-run messages stay unread.</div>
             </div>
             <div class="col-md-4">
                 <label asp-for="Input.PollIntervalSeconds" class="form-label">Poll every (seconds)</label>
@@ -61,6 +96,28 @@
             <div class="col-md-4">
                 <label asp-for="Input.OutlookCategory" class="form-label">Outlook category tag</label>
                 <input asp-for="Input.OutlookCategory" class="form-control" />
+            </div>
+            <div class="col-md-4">
+                <label asp-for="Input.HandledFolder" class="form-label">Move handled emails to folder</label>
+                <input asp-for="Input.HandledFolder" class="form-control" placeholder="AI-Routed" />
+                <div class="form-text">Use <code>/</code> for subfolders. Created if missing. Empty = leave in Inbox. A rule can override it.</div>
+            </div>
+            <div class="col-12">
+                <label asp-for="Input.RedirectNotice" class="form-label">Redirect notice (added to replies when the message is forwarded)</label>
+                <textarea asp-for="Input.RedirectNotice" class="form-control" rows="7"></textarea>
+                <div class="form-text">
+                    Tells the sender the message was only forwarded by the assistant, is marked as handled, and that you won't act on it outside the proper channel.
+                    Placeholders: <code>{ForwardTo}</code>, <code>{SenderName}</code>. With "Personalise the reply with AI" on a rule, Claude keeps it but writes it only in the sender's language.
+                    Empty = no notice.
+                </div>
+            </div>
+            <div class="col-12">
+                <label asp-for="Input.ForwardNotice" class="form-label">Forward notice (placed above the forwarded message)</label>
+                <textarea asp-for="Input.ForwardNotice" class="form-control" rows="10"></textarea>
+                <div class="form-text">
+                    Explains to the receiving team that this is an automated forward. Placeholders: <code>{Owner}</code> (your name), <code>{SenderName}</code>, <code>{SenderEmail}</code>,
+                    <code>{RuleName}</code>, <code>{Subject}</code>, <code>{Summary}</code> (AI summary; lines with it are removed when there is none).
+                </div>
             </div>
             <div class="col-12">
                 <label asp-for="Input.ReplyFooter" class="form-label">Footer appended to every reply</label>

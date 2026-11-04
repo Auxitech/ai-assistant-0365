@@ -63,6 +63,12 @@
             <span asp-validation-for="Rule.ForwardTo" class="text-danger small"></span>
             <div class="form-text">Email: the original email is forwarded. Teams: the chat message is sent by email to these addresses.</div>
         </div>
+        <div class="col-md-4"></div>
+        <div class="col-md-8">
+            <label class="form-label" asp-for="Rule.MoveToFolder">Outlook folder (optional)</label>
+            <input asp-for="Rule.MoveToFolder" class="form-control" placeholder="Clients/CDB1" />
+            <div class="form-text">Handled emails for this rule are moved here (subfolders with <code>/</code>, created if missing). Empty = global folder from Settings.</div>
+        </div>
 
         <div class="col-12">
             <label class="form-label" asp-for="Rule.ReplyTemplate">Reply to the sender</label>

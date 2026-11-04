@@ -28,6 +28,10 @@ public class ProcessingService(
     private static readonly TimeSpan Overlap = TimeSpan.FromMinutes(5);
     private static readonly TimeSpan TeamsReplyCooldown = TimeSpan.FromHours(24);
 
+    private string? _myUserId;
+    private string? _tenantId;
+    private string? _myName;
+
     public async Task<RunResult> RunOnceAsync(CancellationToken ct)
     {
         if (!await RunLock.WaitAsync(0, ct)) return new RunResult(0, 0, "A run is already in progress.");
@@ -38,6 +42,9 @@ public class ProcessingService(
         {
             if (await auth.GetAccountAsync() == null) throw new NotSignedInException();
             var me = await graph.GetMeAsync(ct);
+            _myUserId = me.Id;
+            _myName = me.DisplayName;
+            _tenantId = await auth.GetTenantIdAsync();
             var rules = await db.Rules.AsNoTracking().ToListAsync(ct);
             var now = DateTimeOffset.UtcNow;
 
@@ -157,17 +164,31 @@ public class ProcessingService(
         if (rule.Action == RuleAction.Ignore) { Skip(rec, "Rule action is Ignore."); return; }
 
         // --- AI triage ---
+        // Always run when AI is available: the sensitivity check protects every rule that forwards or replies.
         AiVerdict? verdict = null;
-        if (ai.IsEnabled && (rule.RequireSupportRequest || rule.UseAiReply))
+        if (ai.IsEnabled)
         {
             verdict = await ai.ClassifyAsync(msg.Source.ToString(), msg.SenderName, msg.SenderEmail, msg.Subject, msg.Body, ct);
-            if (verdict != null)
+            if (verdict == null)
             {
-                rec.AiIsSupportRequest = verdict.IsSupportRequest;
-                rec.AiCategory = verdict.Category;
-                rec.AiConfidence = verdict.Confidence;
-                rec.AiSummary = verdict.Summary;
+                Skip(rec, "AI declined to classify this message: held back (not forwarded, no reply) for safety.");
+                return;
             }
+            rec.AiIsSupportRequest = verdict.IsSupportRequest;
+            rec.AiIsSensitive = verdict.IsSensitive;
+            rec.AiCategory = verdict.Category;
+            rec.AiConfidence = verdict.Confidence;
+            rec.AiSummary = verdict.Summary;
+
+            if (verdict.IsSensitive)
+            {
+                Skip(rec, $"Sensitive ({(string.IsNullOrWhiteSpace(verdict.SensitiveReason) ? verdict.Category : verdict.SensitiveReason)}): not forwarded, no reply, left unread in your inbox.");
+                return;
+            }
+        }
+        else
+        {
+            rec.Note = "AI disabled: sensitivity check not performed. ";
         }
         if (rule.RequireSupportRequest && verdict != null &&
             (!verdict.IsSupportRequest || verdict.Confidence < rule.MinConfidence))
@@ -178,7 +199,7 @@ public class ProcessingService(
             return;
         }
         if (rule.RequireSupportRequest && !ai.IsEnabled)
-            rec.Note = "AI disabled: support-request check skipped. ";
+            rec.Note += "Support-request check skipped. ";
 
         // --- What to do ---
         var forwardTo = RuleMatcher.ParseAddresses(rule.ForwardTo);
@@ -199,13 +220,20 @@ public class ProcessingService(
         {
             var target = forwardTo.Count > 0 ? string.Join(", ", forwardTo) : "the support team";
             replyText = RuleMatcher.Render(rule.ReplyTemplate, msg.SenderName, msg.SenderEmail, target, msg.Subject, verdict?.Summary ?? "");
+            if (doForward && !string.IsNullOrWhiteSpace(settings.RedirectNotice))
+                replyText += "\n\n" + RuleMatcher.Render(settings.RedirectNotice, msg.SenderName, msg.SenderEmail, target, msg.Subject, verdict?.Summary ?? "");
             if (rule.UseAiReply && ai.IsEnabled)
                 replyText = await ai.PersonalizeReplyAsync(replyText, msg.SenderName, msg.Subject, msg.Body, ct) ?? replyText;
             if (!string.IsNullOrWhiteSpace(settings.ReplyFooter))
                 replyText += "\n\n" + settings.ReplyFooter;
             rec.ReplyText = replyText;
         }
-        if (doForward) rec.ForwardedTo = string.Join(", ", forwardTo);
+        if (doForward)
+        {
+            rec.ForwardedTo = string.Join(", ", forwardTo);
+            rec.ForwardNote = BuildForwardNote(settings, rule, msg, rec.AiSummary);
+            (rec.ForwardSubject, rec.ForwardBody) = BuildForwardedMessage(msg, rec.ForwardNote);
+        }
 
         if (settings.DryRun)
         {
@@ -215,8 +243,7 @@ public class ProcessingService(
         }
 
         // --- Execute: forward first (so the request is never lost), then reply ---
-        var fwdNote = $"Automatically forwarded by assistant (rule: {rule.Name}).";
-        if (rec.AiSummary is { Length: > 0 }) fwdNote += $"\nSummary: {rec.AiSummary}";
+        var fwdNote = rec.ForwardNote ?? "";
 
         if (msg.Source == MessageSource.Email)
         {
@@ -227,16 +254,31 @@ public class ProcessingService(
                 try { await graph.AddCategoryAsync(msg.ExternalId, settings.OutlookCategory, ct); }
                 catch (Exception ex) { log.LogWarning(ex, "Could not tag message"); }
             }
+            if (settings.MarkEmailAsRead)
+            {
+                try { await graph.MarkMailReadAsync(msg.ExternalId, ct); rec.Note += "Marked as read. "; }
+                catch (Exception ex) { log.LogWarning(ex, "Could not mark email as read"); rec.Note += "Could not mark as read. "; }
+            }
+            // Move last: Graph gives the message a new id after a move.
+            var folder = !string.IsNullOrWhiteSpace(rule.MoveToFolder) ? rule.MoveToFolder : settings.HandledFolder;
+            if (!string.IsNullOrWhiteSpace(folder))
+            {
+                try { await graph.MoveMailToFolderAsync(msg.ExternalId, folder, ct); rec.Note += $"Moved to '{folder}'. "; }
+                catch (Exception ex) { log.LogWarning(ex, "Could not move email"); rec.Note += $"Could not move to '{folder}': {ex.Message} "; }
+            }
         }
         else
         {
             if (doForward)
             {
-                var html = Html.FromText($"{fwdNote}\n\nFrom: {msg.SenderName} <{msg.SenderEmail}> via Microsoft Teams\nSent: {msg.Received:yyyy-MM-dd HH:mm} UTC\n\n----\n{msg.Body}");
-                var subject = $"[Teams] Request from {msg.SenderName}: {Html.Preview(msg.Body.ReplaceLineEndings(" "), 60)}";
-                await graph.SendMailAsync(forwardTo, subject, html, ct);
+                await graph.SendMailAsync(forwardTo, rec.ForwardSubject!, Html.FromText(rec.ForwardBody!), ct);
             }
             if (doReply) await graph.SendChatMessageAsync(msg.ConversationId!, Html.FromText(replyText!), ct);
+            if (settings.MarkTeamsAsRead && _myUserId != null && _tenantId != null)
+            {
+                try { await graph.MarkChatReadAsync(msg.ConversationId!, _myUserId, _tenantId, ct); rec.Note += "Chat marked as read. "; }
+                catch (Exception ex) { log.LogWarning(ex, "Could not mark chat as read"); rec.Note += "Could not mark chat as read. "; }
+            }
         }
 
         rec.Replied = doReply;
@@ -254,6 +296,47 @@ public class ProcessingService(
             return await q.AnyAsync(m => m.ProcessedAt > since, ct);
         }
         return await q.AnyAsync(ct);
+    }
+
+    private const int MaxStoredBody = 100_000;
+
+    /// <summary>
+    /// Subject + plain-text body of the forwarded message. For Teams this is exactly what is emailed.
+    /// For email, Graph/Outlook builds the forward (note as comment + original below); this mirrors that layout.
+    /// </summary>
+    private static (string Subject, string Body) BuildForwardedMessage(IncomingMessage msg, string note)
+    {
+        var sender = string.IsNullOrWhiteSpace(msg.SenderName) ? msg.SenderEmail : $"{msg.SenderName} <{msg.SenderEmail}>";
+        var original = msg.Body.Length > MaxStoredBody ? msg.Body[..MaxStoredBody] + "\n[truncated]" : msg.Body;
+
+        if (msg.Source == MessageSource.Teams)
+        {
+            var subject = $"[Teams] Request from {msg.SenderName}: {Html.Preview(msg.Body.ReplaceLineEndings(" "), 60)}";
+            var body = $"{note}\n\n________________________________\nFrom: {sender} via Microsoft Teams\nSent: {msg.Received:yyyy-MM-dd HH:mm} UTC\n\n{original}";
+            return (subject, body);
+        }
+
+        var fwdSubject = msg.Subject.StartsWith("FW:", StringComparison.OrdinalIgnoreCase) ? msg.Subject : $"FW: {msg.Subject}";
+        var fwdBody = $"{note}\n\n________________________________\nFrom: {sender}\nSent: {msg.Received:yyyy-MM-dd HH:mm} UTC\nSubject: {msg.Subject}\n\n{original}";
+        return (fwdSubject, fwdBody);
+    }
+
+    private string BuildForwardNote(AppSettings settings, RoutingRule rule, IncomingMessage msg, string? summary)
+    {
+        var owner = string.IsNullOrWhiteSpace(_myName) ? "the recipient" : _myName;
+        var template = string.IsNullOrWhiteSpace(settings.ForwardNotice)
+            ? "Automatically forwarded by {Owner}'s assistant (rule: {RuleName})."
+            : settings.ForwardNotice;
+        if (string.IsNullOrWhiteSpace(summary))
+            template = string.Join('\n', template.Replace("\r\n", "\n").Split('\n').Where(l => !l.Contains("{Summary}")));
+        return template
+            .Replace("{Owner}", owner)
+            .Replace("{SenderName}", string.IsNullOrWhiteSpace(msg.SenderName) ? msg.SenderEmail : msg.SenderName)
+            .Replace("{SenderEmail}", msg.SenderEmail)
+            .Replace("{RuleName}", rule.Name)
+            .Replace("{Subject}", msg.Subject)
+            .Replace("{Summary}", summary ?? "")
+            .Trim();
     }
 
     private static void Skip(ProcessedMessage rec, string why)

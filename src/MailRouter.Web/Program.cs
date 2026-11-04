@@ -62,10 +62,35 @@ using (var scope = app.Services.CreateScope())
     {
         var conn = db.Database.GetDbConnection();
         conn.Open();
-        using var cmd = conn.CreateCommand();
-        cmd.CommandText = "SELECT COUNT(*) FROM pragma_table_info('Rules') WHERE name = 'Exceptions'";
-        if (Convert.ToInt32(cmd.ExecuteScalar()) == 0)
-            db.Database.ExecuteSqlRaw("ALTER TABLE Rules ADD COLUMN Exceptions TEXT NULL");
+        bool EnsureColumn(string table, string column, string ddl)
+        {
+            using var cmd = conn.CreateCommand();
+            cmd.CommandText = $"SELECT COUNT(*) FROM pragma_table_info('{table}') WHERE name = '{column}'";
+            if (Convert.ToInt32(cmd.ExecuteScalar()) != 0) return false;
+            using var alter = conn.CreateCommand();
+            alter.CommandText = $"ALTER TABLE {table} ADD COLUMN {column} {ddl}";
+            alter.ExecuteNonQuery();
+            return true;
+        }
+        void SetSetting(string column, string value)
+        {
+            using var set = conn.CreateCommand();
+            set.CommandText = $"UPDATE Settings SET {column} = $v";
+            var p = set.CreateParameter(); p.ParameterName = "$v"; p.Value = value;
+            set.Parameters.Add(p);
+            set.ExecuteNonQuery();
+        }
+        if (EnsureColumn("Settings", "RedirectNotice", "TEXT NULL")) SetSetting("RedirectNotice", AppSettings.DefaultRedirectNotice);
+        if (EnsureColumn("Settings", "ForwardNotice", "TEXT NULL")) SetSetting("ForwardNotice", AppSettings.DefaultForwardNotice);
+        EnsureColumn("Messages", "ForwardNote", "TEXT NULL");
+        EnsureColumn("Messages", "ForwardSubject", "TEXT NULL");
+        EnsureColumn("Messages", "ForwardBody", "TEXT NULL");
+        EnsureColumn("Messages", "AiIsSensitive", "INTEGER NULL");
+        EnsureColumn("Rules", "Exceptions", "TEXT NULL");
+        EnsureColumn("Settings", "MarkEmailAsRead", "INTEGER NOT NULL DEFAULT 1");
+        EnsureColumn("Settings", "MarkTeamsAsRead", "INTEGER NOT NULL DEFAULT 1");
+        EnsureColumn("Settings", "HandledFolder", "TEXT NULL DEFAULT 'AI-Routed'");
+        EnsureColumn("Rules", "MoveToFolder", "TEXT NULL");
     }
 
     // One-time upgrade: replace the old English-only footer with the FR/DE/EN one, unless it was customised.

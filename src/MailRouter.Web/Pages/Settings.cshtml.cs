@@ -31,14 +31,41 @@ public class SettingsModel(AppDbContext db, GraphAuthService auth, AiService ai)
         s.ProcessEmail = Input.ProcessEmail;
         s.ProcessTeams = Input.ProcessTeams;
         s.TeamsOneOnOneOnly = Input.TeamsOneOnOneOnly;
+        s.MarkEmailAsRead = Input.MarkEmailAsRead;
+        s.HandledFolder = string.IsNullOrWhiteSpace(Input.HandledFolder) ? null : Input.HandledFolder.Trim().Trim('/');
+        s.MarkTeamsAsRead = Input.MarkTeamsAsRead;
         s.PollIntervalSeconds = Input.PollIntervalSeconds;
         s.ReplyFooter = Input.ReplyFooter;
+        s.RedirectNotice = string.IsNullOrWhiteSpace(Input.RedirectNotice) ? null : Input.RedirectNotice.Trim();
+        s.ForwardNotice = string.IsNullOrWhiteSpace(Input.ForwardNotice) ? null : Input.ForwardNotice.Trim();
         s.OutlookCategory = Input.OutlookCategory;
         await db.SaveChangesAsync();
         TempData["Flash"] = wasDry && !s.DryRun
             ? "Saved. LIVE MODE: replies and forwards will now really be sent."
             : "Settings saved.";
         return RedirectToPage();
+    }
+
+    [BindProperty] public string? TrySender { get; set; }
+    [BindProperty] public string? TrySubject { get; set; }
+    [BindProperty] public string? TryBody { get; set; }
+    public AiVerdict? TryResult { get; private set; }
+    public string? TryError { get; private set; }
+
+    public async Task<IActionResult> OnPostTryAiAsync(CancellationToken ct)
+    {
+        ModelState.Clear();
+        await OnGetAsync();
+        if (!ai.IsEnabled) { TryError = "AI is disabled (no ANTHROPIC_API_KEY)."; return Page(); }
+        if (string.IsNullOrWhiteSpace(TryBody)) { TryError = "Enter a message."; return Page(); }
+        try
+        {
+            var sender = string.IsNullOrWhiteSpace(TrySender) ? "someone@example.com" : TrySender.Trim();
+            TryResult = await ai.ClassifyAsync("Email", sender, sender, TrySubject ?? "", TryBody, ct);
+            if (TryResult == null) TryError = "The AI declined to classify this message (it would be held back).";
+        }
+        catch (Exception ex) { TryError = ex.Message; }
+        return Page();
     }
 
     public async Task<IActionResult> OnPostConnectAsync()

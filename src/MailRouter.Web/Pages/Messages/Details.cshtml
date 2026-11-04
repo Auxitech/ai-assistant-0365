@@ -35,7 +35,11 @@
                     <dt class="col-4">AI verdict</dt>
                     <dd class="col-8">
                         @if (m.AiIsSupportRequest == null) { <span class="text-muted">not run</span> }
-                        else { <span>@(m.AiIsSupportRequest == true ? "Support request" : "Not a support request") · @m.AiCategory · @(m.AiConfidence?.ToString("P0"))</span> }
+                        else
+                        {
+                            @if (m.AiIsSensitive == true) { <span class="badge bg-warning text-dark me-1">🔒 Sensitive</span> }
+                            <span>@(m.AiIsSupportRequest == true ? "Support request" : "Not a support request") · @m.AiCategory · @(m.AiConfidence?.ToString("P0"))</span>
+                        }
                     </dd>
                     <dt class="col-4">AI summary</dt><dd class="col-8">@m.AiSummary</dd>
                     <dt class="col-4">Forwarded to</dt><dd class="col-8">@(m.ForwardedTo ?? "—")</dd>
@@ -50,12 +54,39 @@
         @if (m.ReplyText != null)
         {
             <div class="card">
-                <div class="card-header">Reply @(m.Replied ? "sent" : "(not sent)")</div>
+                <div class="card-header">Reply to the sender @(m.Replied ? "(sent)" : "(not sent)")</div>
                 <div class="card-body"><pre class="small mb-0" style="white-space:pre-wrap">@m.ReplyText</pre></div>
             </div>
         }
     </div>
 </div>
+
+@if (m.ForwardBody != null || m.ForwardNote != null)
+{
+    var sent = m.Status == ProcessingStatus.Done;
+    <div class="card mt-4">
+        <div class="card-header d-flex justify-content-between">
+            <span>Forwarded message</span>
+            <span class="badge @(sent ? "bg-success" : "bg-info text-dark")">@(sent ? "sent" : "not sent (dry-run)")</span>
+        </div>
+        <div class="card-body">
+            <dl class="row small mb-3">
+                <dt class="col-sm-2">To</dt><dd class="col-sm-10">@m.ForwardedTo</dd>
+                @if (m.ForwardSubject != null)
+                {
+                    <dt class="col-sm-2">Subject</dt><dd class="col-sm-10">@m.ForwardSubject</dd>
+                }
+                <dt class="col-sm-2">Via</dt>
+                <dd class="col-sm-10">@(m.Source == MessageSource.Email ? "Outlook forward of the original email (attachments included)" : "New email containing the Teams message")</dd>
+            </dl>
+            <pre class="bg-light border rounded p-3 small mb-0" style="white-space:pre-wrap;max-height:600px;overflow:auto">@(m.ForwardBody ?? m.ForwardNote)</pre>
+            @if (m.ForwardBody == null)
+            {
+                <div class="form-text">Only the forward note was recorded for this older entry.</div>
+            }
+        </div>
+    </div>
+}
 
 @if (Model.Thread.Count > 0)
 {

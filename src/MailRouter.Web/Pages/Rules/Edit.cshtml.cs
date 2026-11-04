@@ -30,6 +30,7 @@ public class EditModel(AppDbContext db) : PageModel
         ModelState.Remove("Rule.Pattern");
         ModelState.Remove("Rule.ReplyTemplate");
         Rule.ReplyTemplate ??= "";
+        Rule.MoveToFolder = string.IsNullOrWhiteSpace(Rule.MoveToFolder) ? null : Rule.MoveToFolder.Trim().Trim('/');
         var exceptions = RuleMatcher.ParseList(Rule.Exceptions);
         Rule.Exceptions = exceptions.Count == 0 ? null : string.Join("\n", exceptions);
         Rule.Pattern = (Rule.Pattern ?? "").Trim().ToLowerInvariant().TrimStart('@', '*', '.');

@@ -87,6 +87,61 @@ public class GraphClient(HttpClient http, GraphAuthService auth, ILogger<GraphCl
             saveToSentItems = true,
         }, ct);
 
+    // Folder path -> id cache (folders rarely change; a stale id is detected and retried once).
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, string> FolderCache = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>Moves a message to a folder path like "Clients/CDB1" (under the mailbox root), creating folders as needed.</summary>
+    public async Task MoveMailToFolderAsync(string messageId, string folderPath, CancellationToken ct)
+    {
+        var path = string.Join('/', folderPath.Split('/', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
+        if (path.Length == 0) return;
+        var folderId = await ResolveFolderAsync(path, ct);
+        try
+        {
+            await PostAsync($"{Base}/me/messages/{messageId}/move", new { destinationId = folderId }, ct);
+        }
+        catch (GraphException ex) when (ex.Status == System.Net.HttpStatusCode.NotFound || ex.Status == System.Net.HttpStatusCode.BadRequest)
+        {
+            // Folder may have been deleted/renamed in Outlook: forget cached ids and retry once.
+            foreach (var k in FolderCache.Keys.Where(k => path.StartsWith(k, StringComparison.OrdinalIgnoreCase))) FolderCache.TryRemove(k, out _);
+            folderId = await ResolveFolderAsync(path, ct);
+            await PostAsync($"{Base}/me/messages/{messageId}/move", new { destinationId = folderId }, ct);
+        }
+    }
+
+    private async Task<string> ResolveFolderAsync(string path, CancellationToken ct)
+    {
+        if (FolderCache.TryGetValue(path, out var cached)) return cached;
+        string? parentId = null;
+        var soFar = "";
+        foreach (var name in path.Split('/'))
+        {
+            soFar = soFar.Length == 0 ? name : soFar + "/" + name;
+            if (FolderCache.TryGetValue(soFar, out var id)) { parentId = id; continue; }
+
+            var listUrl = parentId == null ? $"{Base}/me/mailFolders" : $"{Base}/me/mailFolders/{parentId}/childFolders";
+            var filter = Uri.EscapeDataString($"displayName eq '{name.Replace("'", "''")}'");
+            var j = await GetAsync($"{listUrl}?$filter={filter}&$select=id,displayName", ct);
+            id = j["value"]!.AsArray().FirstOrDefault()?["id"]?.GetValue<string>();
+            if (id == null)
+            {
+                var created = await PostForJsonAsync(listUrl, new { displayName = name }, ct);
+                id = created["id"]!.GetValue<string>();
+                log.LogInformation("Created Outlook folder {Path}", soFar);
+            }
+            FolderCache[soFar] = id;
+            parentId = id;
+        }
+        return parentId!;
+    }
+
+    public Task MarkMailReadAsync(string messageId, CancellationToken ct) =>
+        SendAsync(HttpMethod.Patch, $"{Base}/me/messages/{messageId}", new { isRead = true }, ct);
+
+    /// <summary>Marks the whole chat as read for the signed-in user (Graph has no per-message read state).</summary>
+    public Task MarkChatReadAsync(string chatId, string userId, string tenantId, CancellationToken ct) =>
+        PostAsync($"{Base}/chats/{chatId}/markChatReadForUser", new { user = new { id = userId, tenantId } }, ct);
+
     public async Task AddCategoryAsync(string messageId, string category, CancellationToken ct)
     {
         var j = await GetAsync($"{Base}/me/messages/{messageId}?$select=categories", ct);
@@ -99,23 +154,30 @@ public class GraphClient(HttpClient http, GraphAuthService auth, ILogger<GraphCl
     // ---------- Teams ----------
     public async Task<List<ChatInfo>> GetRecentChatsAsync(DateTimeOffset since, CancellationToken ct)
     {
-        var url = $"{Base}/me/chats?$expand=members&$top=50&$orderby=lastMessagePreview/createdDateTime desc";
+        // NB: chat.lastUpdatedDateTime only changes on rename/membership changes, NOT on new messages.
+        // The time of the last message comes from lastMessagePreview.
+        var url = $"{Base}/me/chats?$expand=lastMessagePreview&$orderby=lastMessagePreview/createdDateTime desc&$top=50";
         var chats = new List<ChatInfo>();
         var j = await GetAsync(url, ct);
         foreach (var c in j["value"]!.AsArray())
         {
-            var updated = c!["lastUpdatedDateTime"]?.GetValue<DateTimeOffset>() ?? DateTimeOffset.MinValue;
-            if (updated <= since) continue;
+            var lastMsg = c!["lastMessagePreview"]?["createdDateTime"]?.GetValue<DateTimeOffset>();
+            if (lastMsg == null) continue;
+            if (lastMsg <= since) break; // sorted newest first: nothing newer after this
+
+            var chatId = c["id"]!.GetValue<string>();
             var members = new Dictionary<string, (string, string)>();
-            foreach (var mem in c["members"]?.AsArray() ?? [])
+            var mj = await GetAsync($"{Base}/me/chats/{chatId}/members", ct);
+            foreach (var mem in mj["value"]!.AsArray())
             {
                 var uid = mem!["userId"]?.GetValue<string>();
                 if (uid == null) continue;
                 members[uid] = (mem["displayName"]?.GetValue<string>() ?? "",
                                 (mem["email"]?.GetValue<string>() ?? "").ToLowerInvariant());
             }
-            chats.Add(new ChatInfo(c["id"]!.GetValue<string>(), c["chatType"]?.GetValue<string>() ?? "", updated, members));
+            chats.Add(new ChatInfo(chatId, c["chatType"]?.GetValue<string>() ?? "", lastMsg.Value, members));
         }
+        log.LogInformation("Teams: {Count} chat(s) with new messages since {Since:u}", chats.Count, since);
         return chats;
     }
 
@@ -156,6 +218,15 @@ public class GraphClient(HttpClient http, GraphAuthService auth, ILogger<GraphCl
     }
 
     private Task PostAsync(string url, object payload, CancellationToken ct) => SendAsync(HttpMethod.Post, url, payload, ct);
+
+    private async Task<JsonNode> PostForJsonAsync(string url, object payload, CancellationToken ct)
+    {
+        using var req = await BuildAsync(HttpMethod.Post, url, payload, ct);
+        using var res = await http.SendAsync(req, ct);
+        var body = await res.Content.ReadAsStringAsync(ct);
+        if (!res.IsSuccessStatusCode) throw new GraphException(res.StatusCode, body);
+        return JsonNode.Parse(body)!;
+    }
 
     private async Task SendAsync(HttpMethod method, string url, object payload, CancellationToken ct)
     {
