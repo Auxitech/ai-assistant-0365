@@ -58,6 +58,16 @@ using (var scope = app.Services.CreateScope())
     var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
     db.Database.EnsureCreated();
 
+    // Lightweight schema upgrades for databases created by earlier versions (EnsureCreated doesn't alter tables).
+    {
+        var conn = db.Database.GetDbConnection();
+        conn.Open();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = "SELECT COUNT(*) FROM pragma_table_info('Rules') WHERE name = 'Exceptions'";
+        if (Convert.ToInt32(cmd.ExecuteScalar()) == 0)
+            db.Database.ExecuteSqlRaw("ALTER TABLE Rules ADD COLUMN Exceptions TEXT NULL");
+    }
+
     // One-time upgrade: replace the old English-only footer with the FR/DE/EN one, unless it was customised.
     var settings = db.GetSettingsAsync().GetAwaiter().GetResult();
     if (settings.ReplyFooter == AppSettings.LegacyFooter)

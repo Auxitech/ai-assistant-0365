@@ -14,6 +14,7 @@ public class IndexModel(AppDbContext db) : PageModel
     [BindProperty(SupportsGet = true)] public MessageSource TestSource { get; set; } = MessageSource.Email;
     public RoutingRule? TestResult { get; private set; }
     public bool Tested { get; private set; }
+    public List<RoutingRule> TestExcludedBy { get; private set; } = [];
 
     public async Task OnGetAsync()
     {
@@ -22,6 +23,7 @@ public class IndexModel(AppDbContext db) : PageModel
         {
             Tested = true;
             TestResult = RuleMatcher.Match(Rules, TestAddress, TestSource);
+            TestExcludedBy = RuleMatcher.ExcludedBy(Rules, TestAddress, TestSource);
         }
     }
 

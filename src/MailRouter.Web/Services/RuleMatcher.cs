@@ -28,17 +28,47 @@ public static class RuleMatcher
             .FirstOrDefault();
     }
 
-    private static bool IsMatch(RoutingRule r, string email, string domain)
+    /// <summary>Rules whose pattern matches the sender but which skip them because of an exception (for the tester UI).</summary>
+    public static List<RoutingRule> ExcludedBy(IEnumerable<RoutingRule> rules, string senderEmail, MessageSource source)
+    {
+        var email = senderEmail.Trim().ToLowerInvariant();
+        var domain = DomainOf(email);
+        var channel = source == MessageSource.Email ? ChannelFlags.Email : ChannelFlags.Teams;
+        return rules
+            .Where(r => r.Enabled && r.Channels.HasFlag(channel) && PatternMatches(r, email, domain) && IsExcepted(r, email, domain))
+            .OrderBy(r => r.Priority)
+            .ToList();
+    }
+
+    private static bool IsMatch(RoutingRule r, string email, string domain) =>
+        PatternMatches(r, email, domain) && !IsExcepted(r, email, domain);
+
+    private static bool PatternMatches(RoutingRule r, string email, string domain)
     {
         var p = r.Pattern.Trim().ToLowerInvariant().TrimStart('@', '*', '.');
         return r.MatchType switch
         {
             RuleMatchType.Email => p.Length > 0 && email == p,
-            RuleMatchType.Domain => p.Length > 0 && domain.Length > 0 && (domain == p || domain.EndsWith("." + p)),
+            RuleMatchType.Domain => p.Length > 0 && DomainMatches(domain, p),
             RuleMatchType.CatchAll => email.Length > 0,
             _ => false,
         };
     }
+
+    private static bool IsExcepted(RoutingRule r, string email, string domain) =>
+        ParseList(r.Exceptions).Any(x => x.Contains('@') ? email == x : DomainMatches(domain, x));
+
+    private static bool DomainMatches(string domain, string pattern) =>
+        domain.Length > 0 && (domain == pattern || domain.EndsWith("." + pattern));
+
+    /// <summary>Exceptions list: addresses and/or domains, normalised.</summary>
+    public static List<string> ParseList(string? list) =>
+        (list ?? "").Split([',', ';', ' ', '\n', '\r'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Select(x => x.ToLowerInvariant().TrimStart('*', '.'))
+            .Select(x => x.StartsWith('@') ? x[1..] : x)
+            .Where(x => x.Length > 0)
+            .Distinct()
+            .ToList();
 
     public static List<string> ParseAddresses(string? list) =>
         (list ?? "").Split([',', ';', ' ', '\n'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)

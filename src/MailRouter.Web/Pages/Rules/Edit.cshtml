@@ -38,6 +38,13 @@
             <span asp-validation-for="Rule.Pattern" class="text-danger small"></span>
             <div class="form-text">Domain also matches subdomains. Ignored for CatchAll.</div>
         </div>
+        <div class="col-md-4"></div>
+        <div class="col-md-8">
+            <label class="form-label" asp-for="Rule.Exceptions">Exceptions</label>
+            <textarea asp-for="Rule.Exceptions" class="form-control font-monospace" rows="2" placeholder="samuelrichoz@cdb1.ch&#10;direction.cdb1.ch"></textarea>
+            <div class="form-text">Addresses or domains this rule must <strong>not</strong> apply to (one per line, or comma-separated). They fall through to the next matching rule, usually your catch-all Ignore.</div>
+        </div>
+        <div class="col-md-4"></div>
         <div class="col-md-4">
             <label class="form-label">Channels</label>
             <div>

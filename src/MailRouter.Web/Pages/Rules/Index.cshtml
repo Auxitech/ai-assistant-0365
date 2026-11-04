@@ -21,7 +21,13 @@
         <tr class="@(r.Enabled ? "" : "text-muted")">
             <td>@r.Priority</td>
             <td><a asp-page="Edit" asp-route-id="@r.Id">@r.Name</a></td>
-            <td><span class="badge bg-light text-dark">@r.MatchType</span> <code>@(r.MatchType == RuleMatchType.CatchAll ? "*" : r.Pattern)</code></td>
+            <td>
+                <span class="badge bg-light text-dark">@r.MatchType</span> <code>@(r.MatchType == RuleMatchType.CatchAll ? "*" : r.Pattern)</code>
+                @if (!string.IsNullOrWhiteSpace(r.Exceptions))
+                {
+                    <div class="small text-muted">except: @string.Join(", ", MailRouter.Web.Services.RuleMatcher.ParseList(r.Exceptions))</div>
+                }
+            </td>
             <td>@r.Channels</td>
             <td>@r.Action</td>
             <td class="small">@r.ForwardTo</td>
@@ -53,6 +59,10 @@
         </form>
         @if (Model.Tested)
         {
+            @foreach (var x in Model.TestExcludedBy)
+            {
+                <div class="mt-3 text-muted">Skipped by exception in <a asp-page="Edit" asp-route-id="@x.Id">@x.Name</a></div>
+            }
             <div class="mt-3">
                 @if (Model.TestResult == null)
                 {
