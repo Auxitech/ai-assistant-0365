@@ -1,0 +1,12 @@
+@model ProcessingStatus
+@{
+    var cls = Model switch
+    {
+        ProcessingStatus.Done => "bg-success",
+        ProcessingStatus.DryRun => "bg-info text-dark",
+        ProcessingStatus.Skipped => "bg-secondary",
+        ProcessingStatus.Failed => "bg-danger",
+        _ => "bg-light text-dark",
+    };
+}
+<span class="badge @cls">@Model</span>

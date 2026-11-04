@@ -1,0 +1,100 @@
+﻿@page
+@model IndexModel
+@{
+    ViewData["Title"] = "Activity";
+    var s = Model.Settings;
+    int Count(ProcessingStatus st) => Model.Last24h.TryGetValue(st, out var c) ? c : 0;
+}
+
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <h2 class="mb-0">Activity</h2>
+    <form method="post" asp-page-handler="RunNow">
+        <button class="btn btn-primary">▶ Run now</button>
+    </form>
+</div>
+
+@if (Model.Account == null)
+{
+    <div class="alert alert-warning">Not connected to Microsoft 365. <a asp-page="/Settings">Connect your account</a> to start processing.</div>
+}
+@if (s.DryRun)
+{
+    <div class="alert alert-info"><strong>Dry-run mode is ON.</strong> Nothing is sent — each entry shows what <em>would</em> have been done. Turn it off in <a asp-page="/Settings">Settings</a> once you're happy.</div>
+}
+@if (!Model.AiEnabled)
+{
+    <div class="alert alert-secondary">AI is disabled (no Anthropic API key). Rules still apply; template replies are sent as-is.</div>
+}
+@if (s.LastRunError != null)
+{
+    <div class="alert alert-danger">Last run error: @s.LastRunError</div>
+}
+
+<div class="row g-3 mb-4">
+    <div class="col"><div class="card text-center"><div class="card-body"><div class="fs-3">@Count(ProcessingStatus.Done)</div><div class="text-muted small">Handled (24h)</div></div></div></div>
+    <div class="col"><div class="card text-center"><div class="card-body"><div class="fs-3">@Count(ProcessingStatus.DryRun)</div><div class="text-muted small">Dry-run (24h)</div></div></div></div>
+    <div class="col"><div class="card text-center"><div class="card-body"><div class="fs-3">@Count(ProcessingStatus.Skipped)</div><div class="text-muted small">Skipped (24h)</div></div></div></div>
+    <div class="col"><div class="card text-center"><div class="card-body"><div class="fs-3 text-danger">@Count(ProcessingStatus.Failed)</div><div class="text-muted small">Failed (24h)</div></div></div></div>
+    <div class="col"><div class="card text-center"><div class="card-body"><div class="small">@(s.LastRunAt?.ToLocalTime().ToString("dd.MM HH:mm:ss") ?? "never")</div><div class="text-muted small">Last run · every @s.PollIntervalSeconds s</div></div></div></div>
+</div>
+
+<form method="get" class="row g-2 mb-3">
+    <div class="col-md-4"><input asp-for="Q" class="form-control" placeholder="Search sender, subject, rule…" /></div>
+    <div class="col-md-2">
+        <select asp-for="Source" class="form-select" asp-items="Html.GetEnumSelectList<MessageSource>()"><option value="">All channels</option></select>
+    </div>
+    <div class="col-md-2">
+        <select asp-for="Status" class="form-select" asp-items="Html.GetEnumSelectList<ProcessingStatus>()"><option value="">All statuses</option></select>
+    </div>
+    <div class="col-md-2"><button class="btn btn-outline-secondary w-100">Filter</button></div>
+</form>
+
+<table class="table table-sm table-hover align-middle">
+    <thead>
+        <tr><th>When</th><th>Ch.</th><th>From</th><th>Subject / message</th><th>Rule</th><th>AI</th><th>Result</th><th>Status</th></tr>
+    </thead>
+    <tbody>
+    @foreach (var m in Model.Items)
+    {
+        <tr style="cursor:pointer" onclick="location.href='@Url.Page("/Messages/Details", new { id = m.Id })'">
+            <td class="text-nowrap small">@m.ReceivedAt.ToLocalTime().ToString("dd.MM HH:mm")</td>
+            <td>@(m.Source == MessageSource.Email ? "✉️" : "💬")</td>
+            <td class="small"><div>@m.SenderName</div><div class="text-muted">@m.SenderEmail</div></td>
+            <td class="small text-truncate" style="max-width:280px">
+                @(m.Source == MessageSource.Email ? m.Subject : m.BodyPreview)
+            </td>
+            <td class="small">@m.RuleName</td>
+            <td class="small">
+                @if (m.AiIsSupportRequest != null)
+                {
+                    <span title="@m.AiSummary">@(m.AiIsSupportRequest == true ? "🛟" : "💬") @m.AiCategory @(m.AiConfidence?.ToString("P0"))</span>
+                }
+            </td>
+            <td class="small">
+                @if (m.ForwardedTo != null) { <div>→ @m.ForwardedTo</div> }
+                @if (m.ReplyText != null) { <div>↩ reply @(m.Replied ? "sent" : "drafted")</div> }
+                @if (m.Note != null) { <div class="text-muted">@m.Note</div> }
+                @if (m.Error != null) { <div class="text-danger">@m.Error</div> }
+            </td>
+            <td><partial name="_StatusBadge" model="m.Status" /></td>
+        </tr>
+    }
+    @if (Model.Items.Count == 0)
+    {
+        <tr><td colspan="8" class="text-center text-muted py-4">Nothing yet. New messages show up here as they're processed.</td></tr>
+    }
+    </tbody>
+</table>
+
+@if (Model.Total > IndexModel.PageSize)
+{
+    var pages = (int)Math.Ceiling(Model.Total / (double)IndexModel.PageSize);
+    <nav><ul class="pagination pagination-sm">
+        @for (var i = 1; i <= pages; i++)
+        {
+            <li class="page-item @(i == Model.PageNo ? "active" : "")">
+                <a class="page-link" asp-route-PageNo="@i" asp-route-Q="@Model.Q" asp-route-Status="@Model.Status" asp-route-Source="@Model.Source">@i</a>
+            </li>
+        }
+    </ul></nav>
+}

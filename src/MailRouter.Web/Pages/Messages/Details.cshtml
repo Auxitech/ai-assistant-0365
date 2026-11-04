@@ -1,0 +1,69 @@
+@page "{id:int}"
+@model MailRouter.Web.Pages.Messages.DetailsModel
+@{
+    var m = Model.Item;
+    ViewData["Title"] = "Message details";
+}
+<a asp-page="/Index" class="small">← Back to activity</a>
+<h3 class="mt-2">@(m.Source == MessageSource.Email ? "✉️ " + m.Subject : "💬 Teams message") <partial name="_StatusBadge" model="m.Status" /></h3>
+
+<div class="row g-4 mt-1">
+    <div class="col-lg-6">
+        <div class="card">
+            <div class="card-header">Incoming</div>
+            <div class="card-body">
+                <dl class="row small mb-2">
+                    <dt class="col-4">From</dt><dd class="col-8">@m.SenderName &lt;@m.SenderEmail&gt;</dd>
+                    <dt class="col-4">Domain</dt><dd class="col-8">@m.SenderDomain</dd>
+                    <dt class="col-4">Received</dt><dd class="col-8">@m.ReceivedAt.ToLocalTime().ToString("dd.MM.yyyy HH:mm:ss")</dd>
+                    <dt class="col-4">Processed</dt><dd class="col-8">@m.ProcessedAt.ToLocalTime().ToString("dd.MM.yyyy HH:mm:ss")</dd>
+                </dl>
+                <pre class="bg-light p-2 small" style="white-space:pre-wrap;max-height:400px;overflow:auto">@m.BodyPreview</pre>
+            </div>
+        </div>
+    </div>
+    <div class="col-lg-6">
+        <div class="card mb-3">
+            <div class="card-header">Decision</div>
+            <div class="card-body small">
+                <dl class="row mb-0">
+                    <dt class="col-4">Rule</dt>
+                    <dd class="col-8">
+                        @if (m.RuleId != null) { <a asp-page="/Rules/Edit" asp-route-id="@m.RuleId">@m.RuleName</a> } else { <span class="text-muted">none</span> }
+                    </dd>
+                    <dt class="col-4">Action</dt><dd class="col-8">@m.Action</dd>
+                    <dt class="col-4">AI verdict</dt>
+                    <dd class="col-8">
+                        @if (m.AiIsSupportRequest == null) { <span class="text-muted">not run</span> }
+                        else { <span>@(m.AiIsSupportRequest == true ? "Support request" : "Not a support request") · @m.AiCategory · @(m.AiConfidence?.ToString("P0"))</span> }
+                    </dd>
+                    <dt class="col-4">AI summary</dt><dd class="col-8">@m.AiSummary</dd>
+                    <dt class="col-4">Forwarded to</dt><dd class="col-8">@(m.ForwardedTo ?? "—")</dd>
+                    <dt class="col-4">Note</dt><dd class="col-8">@m.Note</dd>
+                    @if (m.Error != null)
+                    {
+                        <dt class="col-4 text-danger">Error</dt><dd class="col-8 text-danger">@m.Error</dd>
+                    }
+                </dl>
+            </div>
+        </div>
+        @if (m.ReplyText != null)
+        {
+            <div class="card">
+                <div class="card-header">Reply @(m.Replied ? "sent" : "(not sent)")</div>
+                <div class="card-body"><pre class="small mb-0" style="white-space:pre-wrap">@m.ReplyText</pre></div>
+            </div>
+        }
+    </div>
+</div>
+
+@if (Model.Thread.Count > 0)
+{
+    <h5 class="mt-4">Same conversation</h5>
+    <ul class="small">
+        @foreach (var t in Model.Thread)
+        {
+            <li><a asp-page="/Messages/Details" asp-route-id="@t.Id">@t.ReceivedAt.ToLocalTime().ToString("dd.MM HH:mm") — @t.SenderEmail — @t.Status</a></li>
+        }
+    </ul>
+}

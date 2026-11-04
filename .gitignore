@@ -1,0 +1,10 @@
+bin/
+obj/
+.vs/
+*.user
+.env
+data/
+*.db
+*.db-shm
+*.db-wal
+msal_cache.bin

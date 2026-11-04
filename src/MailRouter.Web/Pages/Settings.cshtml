@@ -1,0 +1,77 @@
+@page
+@model SettingsModel
+@{
+    ViewData["Title"] = "Settings";
+}
+<h2>Settings</h2>
+
+<div class="card my-3" style="max-width:860px">
+    <div class="card-header">Microsoft 365 account</div>
+    <div class="card-body">
+        @if (!Model.GraphConfigured)
+        {
+            <div class="alert alert-warning mb-0">Graph is not configured. Set <code>GRAPH__CLIENTID</code> and <code>GRAPH__TENANTID</code> in the container environment (see README).</div>
+        }
+        else if (Model.Account != null)
+        {
+            <p class="mb-2">Connected as <strong>@Model.Account</strong></p>
+            <form method="post" asp-page-handler="Disconnect"><button class="btn btn-sm btn-outline-danger">Disconnect</button></form>
+        }
+        else if (Model.PendingLogin != null)
+        {
+            <p>Open <a href="@Model.PendingLogin.VerificationUrl" target="_blank">@Model.PendingLogin.VerificationUrl</a> and enter this code:</p>
+            <p class="display-6 font-monospace">@Model.PendingLogin.UserCode</p>
+            <p class="text-muted small">Sign in with the mailbox the assistant should manage. This page refreshes automatically.</p>
+            <script>setTimeout(() => location.reload(), 4000);</script>
+        }
+        else
+        {
+            @if (Model.LoginError != null) { <div class="alert alert-danger">@Model.LoginError</div> }
+            <p>Not connected.</p>
+            <form method="post" asp-page-handler="Connect"><button class="btn btn-primary">Connect Microsoft 365</button></form>
+        }
+        <div class="mt-3 small text-muted">AI (Claude): @(Model.AiEnabled ? "enabled" : "disabled — set ANTHROPIC_API_KEY")</div>
+    </div>
+</div>
+
+<form method="post" asp-page-handler="Save" style="max-width:860px">
+    <div class="card">
+        <div class="card-header">Behaviour</div>
+        <div class="card-body row g-3">
+            <div class="col-md-6">
+                <div class="form-check form-switch">
+                    <input asp-for="Input.Enabled" class="form-check-input" />
+                    <label asp-for="Input.Enabled" class="form-check-label">Background processing enabled</label>
+                </div>
+                <div class="form-check form-switch mt-2">
+                    <input asp-for="Input.DryRun" class="form-check-input" />
+                    <label asp-for="Input.DryRun" class="form-check-label"><strong>Dry-run</strong> (log only, send nothing)</label>
+                </div>
+            </div>
+            <div class="col-md-6">
+                <div class="form-check"><input asp-for="Input.ProcessEmail" class="form-check-input" /><label asp-for="Input.ProcessEmail" class="form-check-label">Process email (Inbox)</label></div>
+                <div class="form-check"><input asp-for="Input.ProcessTeams" class="form-check-input" /><label asp-for="Input.ProcessTeams" class="form-check-label">Process Teams chats</label></div>
+                <div class="form-check"><input asp-for="Input.TeamsOneOnOneOnly" class="form-check-input" /><label asp-for="Input.TeamsOneOnOneOnly" class="form-check-label">Teams: 1:1 chats only</label></div>
+            </div>
+            <div class="col-md-4">
+                <label asp-for="Input.PollIntervalSeconds" class="form-label">Poll every (seconds)</label>
+                <input asp-for="Input.PollIntervalSeconds" class="form-control" />
+                <span asp-validation-for="Input.PollIntervalSeconds" class="text-danger small"></span>
+            </div>
+            <div class="col-md-4">
+                <label asp-for="Input.OutlookCategory" class="form-label">Outlook category tag</label>
+                <input asp-for="Input.OutlookCategory" class="form-control" />
+            </div>
+            <div class="col-12">
+                <label asp-for="Input.ReplyFooter" class="form-label">Footer appended to every reply</label>
+                <textarea asp-for="Input.ReplyFooter" class="form-control" rows="3"></textarea>
+            </div>
+            <div class="col-12 small text-muted">
+                Watermarks: email @(Model.Input.EmailWatermark?.ToLocalTime().ToString("dd.MM.yyyy HH:mm") ?? "not started"),
+                Teams @(Model.Input.TeamsWatermark?.ToLocalTime().ToString("dd.MM.yyyy HH:mm") ?? "not started").
+                Only messages received after the first run are processed.
+            </div>
+        </div>
+        <div class="card-footer"><button class="btn btn-primary">Save</button></div>
+    </div>
+</form>

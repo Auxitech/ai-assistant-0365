@@ -1,0 +1,94 @@
+@page "{id:int?}"
+@model MailRouter.Web.Pages.Rules.EditModel
+@{
+    ViewData["Title"] = Model.Rule.Id == 0 ? "New rule" : "Edit rule";
+}
+<a asp-page="Index" class="small">← Back to rules</a>
+<h2 class="mt-2">@ViewData["Title"]</h2>
+
+<form method="post" class="mt-3" style="max-width:860px">
+    <input type="hidden" asp-for="Rule.Id" />
+    <div asp-validation-summary="All" class="text-danger"></div>
+
+    <div class="row g-3">
+        <div class="col-md-6">
+            <label class="form-label" asp-for="Rule.Name">Name</label>
+            <input asp-for="Rule.Name" class="form-control" placeholder="CDB1 customers" />
+            <span asp-validation-for="Rule.Name" class="text-danger small"></span>
+        </div>
+        <div class="col-md-3">
+            <label class="form-label" asp-for="Rule.Priority">Priority</label>
+            <input asp-for="Rule.Priority" class="form-control" />
+            <div class="form-text">Lower = checked first.</div>
+        </div>
+        <div class="col-md-3 d-flex align-items-end">
+            <div class="form-check">
+                <input asp-for="Rule.Enabled" class="form-check-input" />
+                <label asp-for="Rule.Enabled" class="form-check-label">Enabled</label>
+            </div>
+        </div>
+
+        <div class="col-md-3">
+            <label class="form-label" asp-for="Rule.MatchType">Match on</label>
+            <select asp-for="Rule.MatchType" class="form-select" asp-items="Html.GetEnumSelectList<RuleMatchType>()"></select>
+        </div>
+        <div class="col-md-5">
+            <label class="form-label" asp-for="Rule.Pattern">Domain or address</label>
+            <input asp-for="Rule.Pattern" class="form-control" placeholder="cdb1.ch" />
+            <span asp-validation-for="Rule.Pattern" class="text-danger small"></span>
+            <div class="form-text">Domain also matches subdomains. Ignored for CatchAll.</div>
+        </div>
+        <div class="col-md-4">
+            <label class="form-label">Channels</label>
+            <div>
+                <div class="form-check form-check-inline"><input asp-for="ChEmail" class="form-check-input" /><label asp-for="ChEmail" class="form-check-label">Email</label></div>
+                <div class="form-check form-check-inline"><input asp-for="ChTeams" class="form-check-input" /><label asp-for="ChTeams" class="form-check-label">Teams</label></div>
+            </div>
+        </div>
+
+        <div class="col-md-4">
+            <label class="form-label" asp-for="Rule.Action">Action</label>
+            <select asp-for="Rule.Action" class="form-select" asp-items="Html.GetEnumSelectList<RuleAction>()"></select>
+        </div>
+        <div class="col-md-8">
+            <label class="form-label" asp-for="Rule.ForwardTo">Forward to</label>
+            <input asp-for="Rule.ForwardTo" class="form-control" placeholder="support@cdb1.ch; helpdesk@yourcompany.ch" />
+            <span asp-validation-for="Rule.ForwardTo" class="text-danger small"></span>
+            <div class="form-text">Email: the original email is forwarded. Teams: the chat message is sent by email to these addresses.</div>
+        </div>
+
+        <div class="col-12">
+            <label class="form-label" asp-for="Rule.ReplyTemplate">Reply to the sender</label>
+            <textarea asp-for="Rule.ReplyTemplate" class="form-control font-monospace" rows="8"></textarea>
+            <span asp-validation-for="Rule.ReplyTemplate" class="text-danger small"></span>
+            <div class="form-text">Placeholders: <code>{SenderName}</code> <code>{SenderEmail}</code> <code>{ForwardTo}</code> <code>{Subject}</code> <code>{Summary}</code> (AI summary). The footer from Settings is appended.</div>
+        </div>
+
+        <div class="col-12"><hr /><h5>AI</h5></div>
+        <div class="col-md-6">
+            <div class="form-check">
+                <input asp-for="Rule.RequireSupportRequest" class="form-check-input" />
+                <label asp-for="Rule.RequireSupportRequest" class="form-check-label">Only act on real help requests</label>
+            </div>
+            <div class="form-text">Claude checks the message first. "Thanks!", FYIs and small talk are skipped instead of being redirected.</div>
+        </div>
+        <div class="col-md-3">
+            <label class="form-label" asp-for="Rule.MinConfidence">Min. confidence</label>
+            <input asp-for="Rule.MinConfidence" class="form-control" step="0.05" min="0" max="1" />
+        </div>
+        <div class="col-md-6">
+            <div class="form-check">
+                <input asp-for="Rule.UseAiReply" class="form-check-input" />
+                <label asp-for="Rule.UseAiReply" class="form-check-label">Personalise the reply with AI</label>
+            </div>
+            <div class="form-text">Claude rewrites the template for each message, in the sender's language, keeping the same meaning and addresses.</div>
+        </div>
+    </div>
+
+    <div class="mt-4">
+        <button class="btn btn-primary">Save</button>
+        <a asp-page="Index" class="btn btn-link">Cancel</a>
+    </div>
+</form>
+
+@section Scripts { <partial name="_ValidationScriptsPartial" /> }
