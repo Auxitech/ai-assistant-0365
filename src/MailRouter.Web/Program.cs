@@ -10,7 +10,7 @@ System.Globalization.CultureInfo.DefaultThreadCurrentUICulture = System.Globaliz
 
 var builder = WebApplication.CreateBuilder(args);
 
-var dataDir = builder.Configuration["DataDirectory"] ?? Path.Combine(AppContext.BaseDirectory, "data");
+var dataDir = builder.Configuration["DataDirectory"] ?? Path.Combine(AppContext.BaseDirectory, "App_Data");
 Directory.CreateDirectory(dataDir);
 
 builder.Services.Configure<GraphOptions>(builder.Configuration.GetSection("Graph"));

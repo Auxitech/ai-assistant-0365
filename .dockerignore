@@ -1,6 +1,6 @@
 **/bin
 **/obj
-**/data
+**/App_Data
 .git
 .vs
 .vscode

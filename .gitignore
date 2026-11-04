@@ -3,7 +3,7 @@ obj/
 .vs/
 *.user
 .env
-data/
+App_Data/
 *.db
 *.db-shm
 *.db-wal
