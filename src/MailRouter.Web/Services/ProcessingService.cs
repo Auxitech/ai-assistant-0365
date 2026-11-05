@@ -232,6 +232,12 @@ public class ProcessingService(
         {
             rec.ForwardedTo = string.Join(", ", forwardTo);
             rec.ForwardNote = BuildForwardNote(settings, rule, msg, rec.AiSummary);
+            // Same as the reply: keep only the language of the incoming message.
+            if (verdict != null)
+            {
+                try { rec.ForwardNote = await ai.LocalizeNoticeAsync(rec.ForwardNote, verdict.Language, ct) ?? rec.ForwardNote; }
+                catch (Exception ex) { log.LogWarning(ex, "Could not localise forward notice; using the template as-is"); }
+            }
             (rec.ForwardSubject, rec.ForwardBody) = BuildForwardedMessage(msg, rec.ForwardNote);
         }
 

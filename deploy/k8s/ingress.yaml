@@ -10,10 +10,10 @@ spec:
   ingressClassName: nginx
   tls:
     - hosts:
-        - mailrouter.centimo.ch
-      secretName: centimo-tls-mailrouter
+        - mailrouter.auxitech.ch
+      secretName: auxitech-tls-mailrouter
   rules:
-    - host: mailrouter.centimo.ch
+    - host: mailrouter.auxitech.ch
       http:
         paths:
           - path: /

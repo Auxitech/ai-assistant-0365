@@ -6,7 +6,7 @@ Mail Router runs in the **same cluster as centimo**, as a standalone tool like `
 |---|---|
 | Namespace | `centimo-mailrouter` |
 | Image | `ghcr.io/auxitech/mailrouter:<version>` (pull secret `regcred`) |
-| URL | https://mailrouter.centimo.ch (ingress `nginx`, cert-manager `letsencrypt-prod`, TLS secret `centimo-tls-mailrouter`) |
+| URL | https://mailrouter.auxitech.ch (ingress `nginx`, cert-manager `letsencrypt-prod`, TLS secret `auxitech-tls-mailrouter`) |
 | Secrets | `sealed-secret-mailrouter-env.yaml`, a SealedSecret sealed with centimo's `sealed-secrets-cert.pem`. Safe to commit |
 | Storage | 1Gi PVC on the default storage class (SQLite, Microsoft sign-in token, cookie keys) |
 
@@ -14,7 +14,7 @@ Mail Router runs in the **same cluster as centimo**, as a standalone tool like `
 
 ## 1. DNS
 
-Point `mailrouter.centimo.ch` at the cluster ingress, the same target as `app.centimo.ch` and `sonar.centimo.ch`. cert-manager issues the certificate automatically through the HTTP-01 challenge once DNS resolves.
+Point `mailrouter.auxitech.ch` at the cluster ingress (179.237.75.38, same as `lb.centimo.ch`). cert-manager issues the certificate automatically through the HTTP-01 challenge once DNS resolves.
 
 ## 2. Build and push the image
 
@@ -64,7 +64,7 @@ rm mailrouter-data.tgz                                # contains the sign-in tok
 docker compose down                                   # keep the volume (no -v) as a backup
 ```
 
-Open https://mailrouter.centimo.ch, log in with the same admin password, and check the dashboard shows **Connected as …** and that the last-run time is moving.
+Open https://mailrouter.auxitech.ch, log in with the same admin password, and check the dashboard shows **Connected as …** and that the last-run time is moving.
 
 ## Changing a secret
 
@@ -101,7 +101,7 @@ The archive contains the Microsoft sign-in token, so keep it private.
 |---|---|
 | `ImagePullBackOff` | `regcred` exists in `centimo-mailrouter`; image/tag pushed to GHCR |
 | `CreateContainerConfigError` | Secret not unsealed: `kubectl -n centimo-mailrouter get sealedsecret,secret`, controller logs in `kube-system` |
-| Certificate not ready | DNS for `mailrouter.centimo.ch`; `kubectl -n centimo-mailrouter describe certificate centimo-tls-mailrouter` |
+| Certificate not ready | DNS for `mailrouter.auxitech.ch`; `kubectl -n centimo-mailrouter describe certificate auxitech-tls-mailrouter` |
 | PVC `Pending` | `kubectl get storageclass` (a default class must exist) |
 | Login loops back to the login page | Ingress must send `X-Forwarded-Proto` (ingress-nginx does by default) |
 
