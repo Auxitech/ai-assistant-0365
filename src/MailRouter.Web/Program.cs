@@ -72,6 +72,23 @@ builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationSc
             ValidIssuers = ["https://graph.microsoft.com", "https://api.botframework.com"],
             ValidAudience = callingAppId,
         };
+        // ASP.NET logs only warnings, so make rejected Teams callbacks visible in the pod logs.
+        o.Events = new Microsoft.AspNetCore.Authentication.JwtBearer.JwtBearerEvents
+        {
+            OnAuthenticationFailed = ctx =>
+            {
+                ctx.HttpContext.RequestServices.GetRequiredService<ILogger<CallingService>>()
+                    .LogWarning("Teams call callback rejected: invalid token ({Error})", ctx.Exception.Message);
+                return Task.CompletedTask;
+            },
+            OnChallenge = ctx =>
+            {
+                if (string.IsNullOrEmpty(ctx.Request.Headers.Authorization))
+                    ctx.HttpContext.RequestServices.GetRequiredService<ILogger<CallingService>>()
+                        .LogWarning("Teams call callback rejected: no Authorization header (from {Ip})", ctx.HttpContext.Connection.RemoteIpAddress);
+                return Task.CompletedTask;
+            },
+        };
     });
 builder.Services.AddAuthorization(o => o.AddPolicy(TeamsCallingScheme, p => p.AddAuthenticationSchemes(TeamsCallingScheme).RequireAuthenticatedUser()));
 builder.Services.AddRazorPages(o =>

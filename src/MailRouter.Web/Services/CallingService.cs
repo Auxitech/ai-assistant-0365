@@ -68,6 +68,8 @@ public class CallingService(
         var data = n["resourceData"];
         var type = data?["@odata.type"]?.GetValue<string>() ?? "";
         var changeType = n["changeType"]?.GetValue<string>() ?? "";
+        log.LogInformation("Call notification: {ChangeType} {Type} state={State} {Resource}",
+            changeType, type, data?["state"]?.GetValue<string>() ?? data?["status"]?.GetValue<string>(), resource);
 
         // "/communications/calls/{callId}" or "/app/calls/{callId}/operations/{opId}"
         var segments = resource.Split('/', StringSplitOptions.RemoveEmptyEntries);
@@ -123,8 +125,9 @@ public class CallingService(
         var user = identity?["user"];
         var phone = RuleMatcher.NormalizePhone(identity?["phone"]?["id"]?.GetValue<string>());
         string name = user?["displayName"]?.GetValue<string>() ?? identity?["phone"]?["displayName"]?.GetValue<string>() ?? "";
-        string? email = null, domain = null, preferredLanguage = null;
+        string? email = null, domain = null, preferredLanguage = null, lookupError = null;
         if (user?["id"]?.GetValue<string>() is { Length: > 0 } userId)
+        try
         {
             var info = await graph.GetUserAsync(userId, ct);
             if (info != null)
@@ -137,6 +140,14 @@ public class CallingService(
             {
                 domain = (await graph.GetTenantDomainAsync(tid, ct))?.ToLowerInvariant();
             }
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            // Keep going so the call is still logged (and handled if possible).
+            log.LogError(ex, "Could not look up caller of call {CallId}", callId);
+            lookupError = ex is Microsoft.Identity.Client.MsalServiceException { ErrorCode: "invalid_client" }
+                ? "Calling bot sign-in failed: CALLING__APPSECRET is wrong (use the secret VALUE, not its ID). "
+                : $"Caller lookup failed: {ex.Message} ";
         }
         // Rule matching key: address, "@domain" for other organisations, or the phone number.
         var sender = email ?? (domain != null ? "@" + domain : phone) ?? "";
@@ -153,6 +164,7 @@ public class CallingService(
             BodyPreview = $"Incoming call from {(string.IsNullOrEmpty(name) ? "" : name + " ")}{email ?? phone ?? (domain != null ? "(" + domain + ")" : "")}".Trim(),
             ReceivedAt = DateTimeOffset.UtcNow,
             ProcessedAt = DateTimeOffset.UtcNow,
+            Error = lookupError,
         };
         db.Messages.Add(rec);
 
@@ -169,6 +181,8 @@ public class CallingService(
             await FallbackAsync(callId, rec, settings, ct);
         }
         await db.SaveChangesAsync(ct);
+        log.LogInformation("Call {CallId} from {Caller}: rule={Rule} status={Status} {Note}",
+            callId, rec.SenderEmail ?? rec.SenderName, rec.RuleName ?? "(none)", rec.Status, rec.Note);
 
         if (_pending.TryGetValue(callId, out var p)) p.LogId = rec.Id;
     }
