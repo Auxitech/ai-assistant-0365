@@ -15,4 +15,4 @@ resources:
 images:
   - name: mailrouter
     newName: ghcr.io/auxitech/mailrouter
-    newTag: "1.0.2"   # bump on every release
+    newTag: "1.0.4"   # bump on every release
