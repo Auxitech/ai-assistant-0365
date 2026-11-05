@@ -35,9 +35,16 @@ public class EditModel(AppDbContext db) : PageModel
         Rule.MoveToFolder = string.IsNullOrWhiteSpace(Rule.MoveToFolder) ? null : Rule.MoveToFolder.Trim().Trim('/');
         var exceptions = RuleMatcher.ParseList(Rule.Exceptions);
         Rule.Exceptions = exceptions.Count == 0 ? null : string.Join("\n", exceptions);
-        Rule.Pattern = (Rule.Pattern ?? "").Trim().ToLowerInvariant().TrimStart('@', '*', '.');
+        var invalidPhones = new List<string>();
+        var phoneEntries = new List<RuleMatcher.PhoneEntry>();
         if (Rule.MatchType == RuleMatchType.Phone)
-            Rule.Pattern = RuleMatcher.NormalizePhone(Rule.Pattern) ?? Rule.Pattern;
+        {
+            // Keep names as typed; store numbers normalised ("+41791234567 Jean Dupont" per line).
+            phoneEntries = RuleMatcher.ParsePhoneList(Rule.Pattern, invalidPhones);
+            if (invalidPhones.Count == 0) Rule.Pattern = RuleMatcher.FormatPhoneList(phoneEntries);
+        }
+        else
+            Rule.Pattern = (Rule.Pattern ?? "").Trim().ToLowerInvariant().TrimStart('@', '*', '.');
         Rule.Channels = (ChEmail ? ChannelFlags.Email : 0) | (ChTeams ? ChannelFlags.Teams : 0) | (ChCalls ? ChannelFlags.Calls : 0);
         var messages = ChEmail || ChTeams;
         var phone = RuleMatcher.NormalizePhone(Rule.RedirectPhoneNumber);
@@ -49,10 +56,13 @@ public class EditModel(AppDbContext db) : PageModel
             ModelState.AddModelError("Rule.Pattern", "Enter a domain like cdb1.ch");
         if (Rule.MatchType == RuleMatchType.Email && !Rule.Pattern.Contains('@'))
             ModelState.AddModelError("Rule.Pattern", "Enter a full email address.");
-        if (Rule.MatchType == RuleMatchType.Phone && RuleMatcher.NormalizePhone(Rule.Pattern) == null)
-            ModelState.AddModelError("Rule.Pattern", "Enter an international number or prefix, e.g. +4121 or +41211234567.");
+        if (invalidPhones.Count > 0)
+            ModelState.AddModelError("Rule.Pattern", $"No phone number found on {invalidPhones.Count} line(s): " +
+                string.Join(" | ", invalidPhones.Take(5)) + (invalidPhones.Count > 5 ? " …" : ""));
+        else if (Rule.MatchType == RuleMatchType.Phone && phoneEntries.Count == 0)
+            ModelState.AddModelError("Rule.Pattern", "Enter at least one phone number, e.g. +41 79 123 45 67 Jean Dupont");
         if (Rule.MatchType == RuleMatchType.Phone && messages)
-            ModelState.AddModelError("", "Phone prefix rules only apply to calls: untick Email and Teams.");
+            ModelState.AddModelError("", "Phone number rules only apply to calls: untick Email and Teams.");
         if (messages && Rule.Action is RuleAction.ReplyAndForward or RuleAction.ForwardOnly && RuleMatcher.ParseAddresses(Rule.ForwardTo).Count == 0)
             ModelState.AddModelError("Rule.ForwardTo", "This action needs at least one forward address.");
         if (messages && Rule.Action is RuleAction.ReplyAndForward or RuleAction.ReplyOnly && string.IsNullOrWhiteSpace(Rule.ReplyTemplate))

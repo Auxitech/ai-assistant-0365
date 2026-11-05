@@ -107,7 +107,9 @@
                     <input asp-for="Input.ProcessCalls" class="form-check-input" disabled="@(!Model.Calling.IsConfigured)" />
                     <label asp-for="Input.ProcessCalls" class="form-check-label">Handle Teams calls (rules with the Calls channel)</label>
                 </div>
-                <div class="form-text">@(Model.Calling.IsConfigured ? "Calls forwarded to the calling bot are matched against your rules." : "Calling bot not configured: see the Teams calls section below.")</div>
+                <div class="form-text">@(Model.Calling.IsConfigured ? "Calls forwarded to the calling bot are matched against your rules." : "Calling bot not configured: see the Teams calls section below.")
+                    To transfer calls from specific phone numbers (e.g. employees' private phones), create a rule with
+                    <a asp-page="/Rules/Edit">Match on = Phone numbers</a> and paste the list there.</div>
             </div>
             <div class="col-md-6">
                 <label asp-for="Input.CallFallbackNumber" class="form-label">Calls with no matching rule go to</label>

@@ -32,13 +32,18 @@
             <label class="form-label" asp-for="Rule.MatchType">Match on</label>
             <select asp-for="Rule.MatchType" class="form-select" asp-items="Html.GetEnumSelectList<RuleMatchType>()"></select>
         </div>
-        <div class="col-md-5">
-            <label class="form-label" asp-for="Rule.Pattern">Domain, address or phone prefix</label>
-            <input asp-for="Rule.Pattern" class="form-control" placeholder="cdb1.ch" />
+        <div class="col-md-9" id="pattern-col">
+            <label class="form-label" asp-for="Rule.Pattern" id="pattern-label">Domain or address</label>
+            <textarea asp-for="Rule.Pattern" class="form-control" rows="1" style="resize:none" placeholder="cdb1.ch"></textarea>
             <span asp-validation-for="Rule.Pattern" class="text-danger small"></span>
-            <div class="form-text">Domain also matches subdomains. Phone prefix (calls only): <code>+4121</code> matches every number starting with it. Ignored for CatchAll.</div>
+            <div class="form-text" id="pattern-help-default">Domain also matches subdomains. Ignored for CatchAll.</div>
+            <div class="form-text d-none" id="pattern-help-phone">
+                Calls only. One number per line, with an optional name: <code>+41 79 123 45 67 Jean Dupont</code> or <code>079 123 45 67;Jean Dupont</code>.
+                You can paste two columns (name and number) straight from Excel. Swiss numbers starting with 0 are accepted.
+                A short entry is a prefix: <code>+4121</code> matches every Lausanne landline. Lines starting with <code>#</code> are ignored.
+                The name is shown in the activity log for that caller.
+            </div>
         </div>
-        <div class="col-md-4"></div>
         <div class="col-md-8">
             <label class="form-label" asp-for="Rule.Exceptions">Exceptions</label>
             <textarea asp-for="Rule.Exceptions" class="form-control font-monospace" rows="2" placeholder="samuelrichoz@cdb1.ch&#10;direction.cdb1.ch"></textarea>
@@ -125,4 +130,29 @@
     </div>
 </form>
 
-@section Scripts { <partial name="_ValidationScriptsPartial" /> }
+@section Scripts {
+    <partial name="_ValidationScriptsPartial" />
+    <script>
+        // The pattern box becomes a multi-line phone list when "Phone numbers" is selected.
+        (() => {
+            const type = document.getElementById("Rule_MatchType");
+            const box = document.getElementById("Rule_Pattern");
+            const phoneValue = "@((int)RuleMatchType.Phone)";
+            const update = () => {
+                const phone = type.value === phoneValue;
+                box.rows = phone ? 10 : 1;
+                box.style.resize = phone ? "vertical" : "none";
+                box.classList.toggle("font-monospace", phone);
+                box.placeholder = phone ? "+41 79 123 45 67 Jean Dupont\n+41 78 765 43 21 Marie Rochat" : "cdb1.ch";
+                document.getElementById("pattern-label").textContent = phone ? "Phone numbers" : "Domain or address";
+                document.getElementById("pattern-help-phone").classList.toggle("d-none", !phone);
+                document.getElementById("pattern-help-default").classList.toggle("d-none", phone);
+                if (phone) { document.getElementById("ChEmail").checked = false; document.getElementById("ChTeams").checked = false; document.getElementById("ChCalls").checked = true; }
+            };
+            // Enter must not submit / should add a line only in phone mode.
+            box.addEventListener("keydown", e => { if (e.key === "Enter" && type.value !== phoneValue) e.preventDefault(); });
+            type.addEventListener("change", update);
+            update();
+        })();
+    </script>
+}

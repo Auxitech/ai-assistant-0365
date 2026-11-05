@@ -10,8 +10,11 @@ public enum RuleMatchType
     Email,
     /// <summary>Matches every sender not matched by a more specific rule.</summary>
     CatchAll,
-    /// <summary>Calls only: matches a caller phone number prefix (e.g. "+4121" or "+41211234567").</summary>
-    [Display(Name = "Phone prefix")]
+    /// <summary>
+    /// Calls only: a list of phone numbers / prefixes, one per line, optionally with a name
+    /// ("+41791234567 Jean Dupont", "+4121" = every Lausanne landline).
+    /// </summary>
+    [Display(Name = "Phone numbers")]
     Phone,
 }
 
@@ -88,8 +91,11 @@ public class RoutingRule
 
     public RuleMatchType MatchType { get; set; } = RuleMatchType.Domain;
 
-    /// <summary>"cdb1.ch" for Domain, "john@cdb1.ch" for Email, ignored for CatchAll.</summary>
-    [StringLength(200)]
+    /// <summary>
+    /// "cdb1.ch" for Domain, "john@cdb1.ch" for Email, ignored for CatchAll.
+    /// Phone: one "+41791234567 Optional Name" per line.
+    /// </summary>
+    [StringLength(20000)]
     public string Pattern { get; set; } = "";
 
     /// <summary>

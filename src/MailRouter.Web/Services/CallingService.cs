@@ -35,6 +35,8 @@ public class CallingService(
         public required List<CallPromptStore.Prompt> Prompts { get; init; }
         public bool PromptStarted { get; set; }
         public bool TransferRequested { get; set; }
+        /// <summary>Teams reported "transferring"/"transferAccepted"; a later "established" means it failed.</summary>
+        public bool TransferInProgress { get; set; }
     }
 
     private sealed record Timeout(string CallId);
@@ -68,8 +70,10 @@ public class CallingService(
         var data = n["resourceData"];
         var type = data?["@odata.type"]?.GetValue<string>() ?? "";
         var changeType = n["changeType"]?.GetValue<string>() ?? "";
-        log.LogInformation("Call notification: {ChangeType} {Type} state={State} {Resource}",
-            changeType, type, data?["state"]?.GetValue<string>() ?? data?["status"]?.GetValue<string>(), resource);
+        var resultInfo = data?["resultInfo"] is { } ri
+            ? $" result={ri["code"]}/{ri["subcode"]} {ri["message"]}" : "";
+        log.LogInformation("Call notification: {ChangeType} {Type} state={State} {Resource}{Result}",
+            changeType, type, data?["state"]?.GetValue<string>() ?? data?["status"]?.GetValue<string>(), resource, resultInfo);
 
         // "/communications/calls/{callId}" or "/app/calls/{callId}/operations/{opId}"
         var segments = resource.Split('/', StringSplitOptions.RemoveEmptyEntries);
@@ -95,6 +99,26 @@ public class CallingService(
         if (state == "incoming" && changeType == "created")
         {
             await OnIncomingAsync(callId, data!, ct);
+            return;
+        }
+        if (state is "transferring" or "transferAccepted" && _pending.TryGetValue(callId, out var pt))
+        {
+            pt.TransferInProgress = true;
+            return;
+        }
+        // Teams accepted the transfer but the call came back to the bot: the transfer target couldn't be reached
+        // (typically: the resource account has no phone number / PSTN route for external numbers).
+        if (state == "established" && _pending.TryGetValue(callId, out var pf) && pf.TransferInProgress)
+        {
+            _pending.TryRemove(callId, out _);
+            log.LogWarning("Transfer of call {CallId} to {Target} failed; hanging up.{Result}", callId, pf.Target, resultInfo);
+            await UpdateLogAsync(pf.LogId, rec =>
+            {
+                rec.Status = ProcessingStatus.Failed;
+                rec.Error = $"Transfer to {pf.Target} failed: the call came back to the bot.{resultInfo} " +
+                            "Check that the bot's resource account has a phone number and a voice routing policy (Direct Routing).";
+            }, ct);
+            try { await graph.HangUpAsync(callId, ct); } catch (Exception hx) { log.LogWarning(hx, "Hang-up failed"); }
             return;
         }
         if (state == "established" && _pending.TryGetValue(callId, out var pc) && !pc.PromptStarted)
@@ -157,8 +181,9 @@ public class CallingService(
             Source = MessageSource.Call,
             ExternalId = callId,
             ConversationId = callId,
-            SenderName = string.IsNullOrEmpty(name) ? (phone ?? "Unknown caller") : name,
-            SenderEmail = email ?? phone,
+            SenderName = !string.IsNullOrEmpty(name) ? name
+                : phone ?? (domain != null ? $"Teams user ({domain})" : "Unknown caller"),
+            SenderEmail = email ?? phone ?? (domain != null ? "@" + domain : null),
             SenderDomain = email != null ? RuleMatcher.DomainOf(email) : domain,
             Subject = "(Teams call)",
             BodyPreview = $"Incoming call from {(string.IsNullOrEmpty(name) ? "" : name + " ")}{email ?? phone ?? (domain != null ? "(" + domain + ")" : "")}".Trim(),
@@ -200,6 +225,9 @@ public class CallingService(
         var rule = RuleMatcher.Match(rules, sender, MessageSource.Call);
         if (rule != null)
         {
+            // Phone list rules can name the caller (e.g. an employee calling from a private phone).
+            if (phone != null && RuleMatcher.MatchPhone(rule, phone)?.Name is { } knownName)
+                rec.SenderName = knownName;
             rec.RuleId = rule.Id;
             rec.RuleName = rule.Name;
             rec.Action = rule.Action;

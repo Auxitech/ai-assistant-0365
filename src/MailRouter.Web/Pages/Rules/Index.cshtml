@@ -22,7 +22,16 @@
             <td>@r.Priority</td>
             <td><a asp-page="Edit" asp-route-id="@r.Id">@r.Name</a></td>
             <td>
-                <span class="badge bg-light text-dark">@r.MatchType</span> <code>@(r.MatchType == RuleMatchType.CatchAll ? "*" : r.Pattern)</code>
+                <span class="badge bg-light text-dark">@r.MatchType</span>
+                @if (r.MatchType == RuleMatchType.Phone)
+                {
+                    var entries = MailRouter.Web.Services.RuleMatcher.ParsePhoneList(r.Pattern);
+                    <span title="@MailRouter.Web.Services.RuleMatcher.FormatPhoneList(entries)">📞 @entries.Count number@(entries.Count == 1 ? "" : "s")</span>
+                }
+                else
+                {
+                    <code>@(r.MatchType == RuleMatchType.CatchAll ? "*" : r.Pattern)</code>
+                }
                 @if (!string.IsNullOrWhiteSpace(r.Exceptions))
                 {
                     <div class="small text-muted">except: @string.Join(", ", MailRouter.Web.Services.RuleMatcher.ParseList(r.Exceptions))</div>
@@ -74,7 +83,8 @@
                 else if (Model.TestSource == MessageSource.Call)
                 {
                     var r = Model.TestResult;
-                    <span>Matches <a asp-page="Edit" asp-route-id="@r.Id"><strong>@r.Name</strong></a> →
+                    var who = MailRouter.Web.Services.RuleMatcher.NormalizePhone(Model.TestAddress) is { } tp ? MailRouter.Web.Services.RuleMatcher.MatchPhone(r, tp)?.Name : null;
+                    <span>Matches <a asp-page="Edit" asp-route-id="@r.Id"><strong>@r.Name</strong></a>@(who != null ? $" ({who})" : "") →
                         @if (r.Action == RuleAction.Ignore || string.IsNullOrEmpty(r.RedirectPhoneNumber)) { <strong>fallback number / declined</strong> }
                         else { <strong>transfer to @r.RedirectPhoneNumber</strong> <span class="text-muted">(@r.CallAnnouncement)</span> }
                     </span>

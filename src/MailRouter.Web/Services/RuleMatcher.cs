@@ -66,7 +66,7 @@ public static class RuleMatcher
             // "@domain" (caller organisation only) has no address part, so it never matches an Email rule.
             RuleMatchType.Email => p.Length > 0 && !c.Email.StartsWith('@') && c.Email == p,
             RuleMatchType.Domain => p.Length > 0 && DomainMatches(c.Domain, p),
-            RuleMatchType.Phone => c.Phone != null && NormalizePhone(p) is { } prefix && c.Phone.StartsWith(prefix),
+            RuleMatchType.Phone => c.Phone != null && MatchPhone(r, c.Phone) != null,
             RuleMatchType.CatchAll => c.Email.Length > 0 || c.Phone != null,
             _ => false,
         };
@@ -78,15 +78,53 @@ public static class RuleMatcher
             : x.Contains('@') ? c.Email == x
             : DomainMatches(c.Domain, x));
 
+    public record PhoneEntry(string Prefix, string? Name);
+
+    // A phone number inside a line of text: starts with + or a digit, digits with spaces . / ( ) - in between.
+    private static readonly System.Text.RegularExpressions.Regex PhoneInText =
+        new(@"[+0-9][0-9 ./()\-]*[0-9]", System.Text.RegularExpressions.RegexOptions.Compiled);
+
     /// <summary>
-    /// "+41 21 123 45 67" / "0041211234567" → "+41211234567". Null if the text isn't an international number
-    /// (local numbers like "021…" are ambiguous and rejected).
+    /// Parses a phone list: one entry per line, number and optional name in any order, separated by spaces,
+    /// tabs, ";" or "," (so rows pasted from Excel work). Unparseable lines are added to <paramref name="invalid"/>.
+    /// </summary>
+    public static List<PhoneEntry> ParsePhoneList(string? text, List<string>? invalid = null)
+    {
+        var result = new List<PhoneEntry>();
+        foreach (var raw in (text ?? "").Split('\n'))
+        {
+            var line = raw.Trim();
+            if (line.Length == 0 || line.StartsWith('#')) continue;
+            // The longest digit run is the number, so digits in a name ("Site 2") don't win.
+            var m = PhoneInText.Matches(line).MaxBy(x => x.Value.Count(char.IsDigit));
+            var number = m == null ? null : NormalizePhone(m.Value);
+            if (number == null) { invalid?.Add(line); continue; }
+            var name = (line[..m!.Index] + " " + line[(m.Index + m.Length)..]).Trim(' ', '\t', ';', ',', ':', '-', '|');
+            name = System.Text.RegularExpressions.Regex.Replace(name, @"[\t;,|]+", " ").Trim();
+            if (result.All(e => e.Prefix != number))
+                result.Add(new PhoneEntry(number, name.Length == 0 ? null : name));
+        }
+        return result;
+    }
+
+    public static string FormatPhoneList(IEnumerable<PhoneEntry> entries) =>
+        string.Join("\n", entries.Select(e => e.Name == null ? e.Prefix : $"{e.Prefix} {e.Name}"));
+
+    /// <summary>The most specific entry of a Phone rule matching the caller (longest prefix), or null.</summary>
+    public static PhoneEntry? MatchPhone(RoutingRule rule, string phoneE164) =>
+        rule.MatchType != RuleMatchType.Phone ? null
+        : ParsePhoneList(rule.Pattern).Where(e => phoneE164.StartsWith(e.Prefix)).MaxBy(e => e.Prefix.Length);
+
+    /// <summary>
+    /// "+41 21 123 45 67" / "0041211234567" / "021 123 45 67" → "+41211234567". National numbers starting with
+    /// a single 0 are taken as Swiss. Null if the text isn't a phone number.
     /// </summary>
     public static string? NormalizePhone(string? s)
     {
         if (string.IsNullOrWhiteSpace(s)) return null;
         s = s.Trim();
         if (s.StartsWith("00")) s = "+" + s[2..];
+        else if (s.StartsWith('0')) s = "+41" + s[1..];
         if (!s.StartsWith('+')) return null;
         var digits = new string(s.Where(char.IsDigit).ToArray());
         if (s[1..].Any(ch => !char.IsDigit(ch) && ch is not (' ' or '-' or '.' or '(' or ')' or '/'))) return null;
