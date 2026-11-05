@@ -140,6 +140,7 @@ using (var scope = app.Services.CreateScope())
         EnsureColumn("Rules", "MoveToFolder", "TEXT NULL");
         EnsureColumn("Rules", "RedirectPhoneNumber", "TEXT NULL");
         EnsureColumn("Rules", "CallAnnouncement", "INTEGER NOT NULL DEFAULT 1");
+        EnsureColumn("Rules", "CallerPhones", "TEXT NULL");
         EnsureColumn("Settings", "ProcessCalls", "INTEGER NOT NULL DEFAULT 0");
         EnsureColumn("Settings", "CallFallbackNumber", "TEXT NULL");
     }

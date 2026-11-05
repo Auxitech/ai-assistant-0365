@@ -45,6 +45,11 @@ public class EditModel(AppDbContext db) : PageModel
         }
         else
             Rule.Pattern = (Rule.Pattern ?? "").Trim().ToLowerInvariant().TrimStart('@', '*', '.');
+
+        var invalidCallerPhones = new List<string>();
+        var callerPhones = RuleMatcher.ParsePhoneList(Rule.CallerPhones, invalidCallerPhones);
+        if (invalidCallerPhones.Count == 0)
+            Rule.CallerPhones = callerPhones.Count == 0 ? null : RuleMatcher.FormatPhoneList(callerPhones);
         Rule.Channels = (ChEmail ? ChannelFlags.Email : 0) | (ChTeams ? ChannelFlags.Teams : 0) | (ChCalls ? ChannelFlags.Calls : 0);
         var messages = ChEmail || ChTeams;
         var phone = RuleMatcher.NormalizePhone(Rule.RedirectPhoneNumber);
@@ -61,6 +66,11 @@ public class EditModel(AppDbContext db) : PageModel
                 string.Join(" | ", invalidPhones.Take(5)) + (invalidPhones.Count > 5 ? " …" : ""));
         else if (Rule.MatchType == RuleMatchType.Phone && phoneEntries.Count == 0)
             ModelState.AddModelError("Rule.Pattern", "Enter at least one phone number, e.g. +41 79 123 45 67 Jean Dupont");
+        if (invalidCallerPhones.Count > 0)
+            ModelState.AddModelError("Rule.CallerPhones", $"No phone number found on {invalidCallerPhones.Count} line(s): " +
+                string.Join(" | ", invalidCallerPhones.Take(5)) + (invalidCallerPhones.Count > 5 ? " …" : ""));
+        if (callerPhones.Count > 0 && !ChCalls)
+            ModelState.AddModelError("Rule.CallerPhones", "These numbers are only used for calls: tick the Calls channel.");
         if (Rule.MatchType == RuleMatchType.Phone && messages)
             ModelState.AddModelError("", "Phone number rules only apply to calls: untick Email and Teams.");
         if (messages && Rule.Action is RuleAction.ReplyAndForward or RuleAction.ForwardOnly && RuleMatcher.ParseAddresses(Rule.ForwardTo).Count == 0)

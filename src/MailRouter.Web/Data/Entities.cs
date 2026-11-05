@@ -137,6 +137,12 @@ public class RoutingRule
     [StringLength(32)]
     public string? RedirectPhoneNumber { get; set; }
 
+    /// <summary>
+    /// Calls channel: extra caller phone numbers this rule also applies to, whatever the match type
+    /// (e.g. employees of the matched company calling from private phones). One "+41791234567 Name" per line.
+    /// </summary>
+    public string? CallerPhones { get; set; }
+
     /// <summary>Calls channel: which recorded announcement is played before the transfer.</summary>
     public AnnouncementLanguage CallAnnouncement { get; set; } = AnnouncementLanguage.Auto;
 }

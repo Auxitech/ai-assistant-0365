@@ -20,19 +20,25 @@ public static class RuleMatcher
     /// </param>
     public static RoutingRule? Match(IEnumerable<RoutingRule> rules, string sender, MessageSource source)
     {
-        var c = Caller.From(sender);
+        var c = Caller.From(sender, source);
         return rules
             .Where(r => r.Enabled && r.Channels.HasFlag(ChannelOf(source)) && IsMatch(r, c))
             .OrderBy(r => r.Priority)
-            .ThenBy(r => r.MatchType switch { RuleMatchType.Email or RuleMatchType.Phone => 0, RuleMatchType.Domain => 1, _ => 2 })
-            .ThenByDescending(r => r.Pattern.Length)
+            .ThenBy(r => Specificity(r, c))
+            // Phone callers: the longest matching number/prefix wins; otherwise the longest pattern.
+            .ThenByDescending(r => c.Phone != null ? MatchPhone(r, c.Phone)?.Prefix.Length ?? 0 : r.Pattern.Length)
             .FirstOrDefault();
     }
+
+    /// <summary>0 = listed phone number or exact address, 1 = domain, 2 = catch-all.</summary>
+    private static int Specificity(RoutingRule r, Caller c) =>
+        c.Phone != null && MatchPhone(r, c.Phone) != null ? 0
+        : r.MatchType switch { RuleMatchType.Email => 0, RuleMatchType.Domain => 1, _ => 2 };
 
     /// <summary>Rules whose pattern matches the sender but which skip them because of an exception (for the tester UI).</summary>
     public static List<RoutingRule> ExcludedBy(IEnumerable<RoutingRule> rules, string sender, MessageSource source)
     {
-        var c = Caller.From(sender);
+        var c = Caller.From(sender, source);
         return rules
             .Where(r => r.Enabled && r.Channels.HasFlag(ChannelOf(source)) && PatternMatches(r, c) && IsExcepted(r, c))
             .OrderBy(r => r.Priority)
@@ -48,10 +54,11 @@ public static class RuleMatcher
 
     private readonly record struct Caller(string Email, string Domain, string? Phone)
     {
-        public static Caller From(string sender)
+        public static Caller From(string sender, MessageSource source)
         {
             var s = sender.Trim().ToLowerInvariant();
-            var phone = NormalizePhone(s);
+            // Phone numbers only exist for calls; email/chat senders are always addresses.
+            var phone = source == MessageSource.Call ? NormalizePhone(s) : null;
             return phone != null ? new Caller("", "", phone) : new Caller(s, DomainOf(s), null);
         }
     }
@@ -60,13 +67,15 @@ public static class RuleMatcher
 
     private static bool PatternMatches(RoutingRule r, Caller c)
     {
+        // Phone numbers listed on the rule (Phone match type, or "also these numbers" on any rule).
+        if (c.Phone != null && MatchPhone(r, c.Phone) != null) return true;
         var p = r.Pattern.Trim().ToLowerInvariant().TrimStart('@', '*', '.');
         return r.MatchType switch
         {
             // "@domain" (caller organisation only) has no address part, so it never matches an Email rule.
             RuleMatchType.Email => p.Length > 0 && !c.Email.StartsWith('@') && c.Email == p,
             RuleMatchType.Domain => p.Length > 0 && DomainMatches(c.Domain, p),
-            RuleMatchType.Phone => c.Phone != null && MatchPhone(r, c.Phone) != null,
+            RuleMatchType.Phone => false, // handled above
             RuleMatchType.CatchAll => c.Email.Length > 0 || c.Phone != null,
             _ => false,
         };
@@ -110,10 +119,14 @@ public static class RuleMatcher
     public static string FormatPhoneList(IEnumerable<PhoneEntry> entries) =>
         string.Join("\n", entries.Select(e => e.Name == null ? e.Prefix : $"{e.Prefix} {e.Name}"));
 
-    /// <summary>The most specific entry of a Phone rule matching the caller (longest prefix), or null.</summary>
+    /// <summary>All phone entries of a rule: its Phone match list plus its extra caller numbers.</summary>
+    public static List<PhoneEntry> PhoneEntries(RoutingRule rule) =>
+        (rule.MatchType == RuleMatchType.Phone ? ParsePhoneList(rule.Pattern) : [])
+            .Concat(ParsePhoneList(rule.CallerPhones)).ToList();
+
+    /// <summary>The most specific phone entry of a rule matching the caller (longest prefix), or null.</summary>
     public static PhoneEntry? MatchPhone(RoutingRule rule, string phoneE164) =>
-        rule.MatchType != RuleMatchType.Phone ? null
-        : ParsePhoneList(rule.Pattern).Where(e => phoneE164.StartsWith(e.Prefix)).MaxBy(e => e.Prefix.Length);
+        PhoneEntries(rule).Where(e => phoneE164.StartsWith(e.Prefix)).MaxBy(e => e.Prefix.Length);
 
     /// <summary>
     /// "+41 21 123 45 67" / "0041211234567" / "021 123 45 67" → "+41211234567". National numbers starting with

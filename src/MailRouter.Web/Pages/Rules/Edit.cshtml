@@ -102,6 +102,17 @@
                 If the chosen language isn't recorded, all available recordings are played.
             </div>
         </div>
+        <div class="col-12">
+            <label class="form-label" asp-for="Rule.CallerPhones">Also apply to calls from these phone numbers</label>
+            <textarea asp-for="Rule.CallerPhones" class="form-control font-monospace" rows="6"
+                      placeholder="+41 79 123 45 67 Jean Dupont&#10;078 765 43 21;Marie Rochat"></textarea>
+            <span asp-validation-for="Rule.CallerPhones" class="text-danger small"></span>
+            <div class="form-text">
+                E.g. this company's employees calling from their private phones: they get the same transfer and announcement as the rule.
+                One number per line with an optional name (shown in the activity log); two columns pasted from Excel work, Swiss numbers starting with 0 are accepted,
+                a short entry like <code>+4121</code> is a prefix, lines starting with <code>#</code> are ignored. Needs the <strong>Calls</strong> channel.
+            </div>
+        </div>
 
         <div class="col-12"><hr /><h5>AI</h5></div>
         <div class="col-md-6">

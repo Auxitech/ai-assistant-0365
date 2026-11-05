@@ -31,6 +31,11 @@
                 else
                 {
                     <code>@(r.MatchType == RuleMatchType.CatchAll ? "*" : r.Pattern)</code>
+                    var extra = MailRouter.Web.Services.RuleMatcher.ParsePhoneList(r.CallerPhones);
+                    if (extra.Count > 0)
+                    {
+                        <span class="small" title="@MailRouter.Web.Services.RuleMatcher.FormatPhoneList(extra)">+ 📞 @extra.Count number@(extra.Count == 1 ? "" : "s")</span>
+                    }
                 }
                 @if (!string.IsNullOrWhiteSpace(r.Exceptions))
                 {
