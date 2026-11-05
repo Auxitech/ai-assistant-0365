@@ -58,7 +58,7 @@
     {
         <tr style="cursor:pointer" onclick="location.href='@Url.Page("/Messages/Details", new { id = m.Id })'">
             <td class="text-nowrap small">@m.ReceivedAt.ToLocalTime().ToString("dd.MM HH:mm")</td>
-            <td>@(m.Source == MessageSource.Email ? "✉️" : "💬")</td>
+            <td>@(m.Source switch { MessageSource.Email => "✉️", MessageSource.Call => "📞", _ => "💬" })</td>
             <td class="small"><div>@m.SenderName</div><div class="text-muted">@m.SenderEmail</div></td>
             <td class="small text-truncate" style="max-width:280px">
                 @(m.Source == MessageSource.Email ? m.Subject : m.BodyPreview)

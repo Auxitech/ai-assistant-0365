@@ -2,10 +2,11 @@ using MailRouter.Web.Data;
 using MailRouter.Web.Services;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.RazorPages;
+using Microsoft.Extensions.Options;
 
 namespace MailRouter.Web.Pages;
 
-public class SettingsModel(AppDbContext db, GraphAuthService auth, AiService ai) : PageModel
+public class SettingsModel(AppDbContext db, GraphAuthService auth, AiService ai, CallPromptStore prompts, IOptions<CallingOptions> calling) : PageModel
 {
     [BindProperty] public AppSettings Input { get; set; } = new();
 
@@ -14,6 +15,8 @@ public class SettingsModel(AppDbContext db, GraphAuthService auth, AiService ai)
     public string? LoginError => auth.LastLoginError;
     public bool GraphConfigured => auth.IsConfigured;
     public bool AiEnabled => ai.IsEnabled;
+    public CallingOptions Calling => calling.Value;
+    public CallPromptStore.PromptInfo? Prompt(string lang) => prompts.Info(lang);
 
     public async Task OnGetAsync()
     {
@@ -23,7 +26,18 @@ public class SettingsModel(AppDbContext db, GraphAuthService auth, AiService ai)
 
     public async Task<IActionResult> OnPostSaveAsync()
     {
-        if (!ModelState.IsValid) { await OnGetAsync(); return Page(); }
+        var fallback = RuleMatcher.NormalizePhone(Input.CallFallbackNumber);
+        if (!string.IsNullOrWhiteSpace(Input.CallFallbackNumber) && !RuleMatcher.IsDialable(fallback))
+            ModelState.AddModelError("Input.CallFallbackNumber", "Enter a full international number, e.g. +41 79 123 45 67, or leave it empty.");
+        if (!ModelState.IsValid)
+        {
+            // Keep what was typed; only refresh the read-only parts.
+            var current = await db.GetSettingsAsync();
+            Input.EmailWatermark = current.EmailWatermark;
+            Input.TeamsWatermark = current.TeamsWatermark;
+            Account = (await auth.GetAccountAsync())?.Username;
+            return Page();
+        }
         var s = await db.GetSettingsAsync();
         bool wasDry = s.DryRun;
         s.Enabled = Input.Enabled;
@@ -39,6 +53,8 @@ public class SettingsModel(AppDbContext db, GraphAuthService auth, AiService ai)
         s.RedirectNotice = string.IsNullOrWhiteSpace(Input.RedirectNotice) ? null : Input.RedirectNotice.Trim();
         s.ForwardNotice = string.IsNullOrWhiteSpace(Input.ForwardNotice) ? null : Input.ForwardNotice.Trim();
         s.OutlookCategory = Input.OutlookCategory;
+        s.ProcessCalls = Input.ProcessCalls;
+        s.CallFallbackNumber = fallback;
         await db.SaveChangesAsync();
         TempData["Flash"] = wasDry && !s.DryRun
             ? "Saved. LIVE MODE: replies and forwards will now really be sent."
@@ -66,6 +82,22 @@ public class SettingsModel(AppDbContext db, GraphAuthService auth, AiService ai)
         }
         catch (Exception ex) { TryError = ex.Message; }
         return Page();
+    }
+
+    public async Task<IActionResult> OnPostUploadPromptAsync(string lang, IFormFile? file, CancellationToken ct)
+    {
+        if (file == null || file.Length == 0) { TempData["Flash"] = "Choose a WAV file first."; return RedirectToPage(null, null, "calls"); }
+        await using var stream = file.OpenReadStream();
+        var error = await prompts.SaveAsync(lang, stream, file.Length, ct);
+        TempData["Flash"] = error ?? $"Announcement ({lang.ToUpperInvariant()}) saved.";
+        return RedirectToPage(null, null, "calls");
+    }
+
+    public IActionResult OnPostDeletePrompt(string lang)
+    {
+        prompts.Delete(lang);
+        TempData["Flash"] = $"Announcement ({lang.ToUpperInvariant()}) removed.";
+        return RedirectToPage(null, null, "calls");
     }
 
     public async Task<IActionResult> OnPostConnectAsync()

@@ -6,6 +6,7 @@ metadata:
     cert-manager.io/cluster-issuer: "letsencrypt-prod"
     # The dashboard shows email content: consider restricting it to office/VPN IPs, e.g.
     # nginx.ingress.kubernetes.io/whitelist-source-range: "203.0.113.10/32"
+    # If you do, Teams call handling breaks: /api/calls/ must stay reachable from Microsoft (callbacks + announcement audio).
 spec:
   ingressClassName: nginx
   tls:

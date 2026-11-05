@@ -5,7 +5,7 @@
     ViewData["Title"] = "Message details";
 }
 <a asp-page="/Index" class="small">← Back to activity</a>
-<h3 class="mt-2">@(m.Source == MessageSource.Email ? "✉️ " + m.Subject : "💬 Teams message") <partial name="_StatusBadge" model="m.Status" /></h3>
+<h3 class="mt-2">@(m.Source switch { MessageSource.Email => "✉️ " + m.Subject, MessageSource.Call => "📞 Teams call", _ => "💬 Teams message" }) <partial name="_StatusBadge" model="m.Status" /></h3>
 
 <div class="row g-4 mt-1">
     <div class="col-lg-6">

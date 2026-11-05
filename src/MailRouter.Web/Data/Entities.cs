@@ -10,6 +10,26 @@ public enum RuleMatchType
     Email,
     /// <summary>Matches every sender not matched by a more specific rule.</summary>
     CatchAll,
+    /// <summary>Calls only: matches a caller phone number prefix (e.g. "+4121" or "+41211234567").</summary>
+    [Display(Name = "Phone prefix")]
+    Phone,
+}
+
+/// <summary>Language of the recorded announcement played to a caller before the call is transferred.</summary>
+public enum AnnouncementLanguage
+{
+    [Display(Name = "No announcement (redirect straight away)")]
+    None,
+    [Display(Name = "Automatic (caller's language, otherwise FR → DE → EN)")]
+    Auto,
+    [Display(Name = "French")]
+    French,
+    [Display(Name = "German")]
+    German,
+    [Display(Name = "English")]
+    English,
+    [Display(Name = "French → German → English")]
+    AllThree,
 }
 
 public enum RuleAction
@@ -31,12 +51,15 @@ public enum ChannelFlags
     Email = 1,
     Teams = 2,
     Both = Email | Teams,
+    /// <summary>Teams calls forwarded to the calling bot.</summary>
+    Calls = 4,
 }
 
 public enum MessageSource
 {
     Email,
     Teams,
+    Call,
 }
 
 public enum ProcessingStatus
@@ -103,6 +126,13 @@ public class RoutingRule
     /// <summary>Minimum AI confidence (0..1) required when RequireSupportRequest is on.</summary>
     [Range(0, 1)]
     public double MinConfidence { get; set; } = 0.7;
+
+    /// <summary>Calls channel: number the call is transferred to, in E.164 format (e.g. "+41211234567").</summary>
+    [StringLength(32)]
+    public string? RedirectPhoneNumber { get; set; }
+
+    /// <summary>Calls channel: which recorded announcement is played before the transfer.</summary>
+    public AnnouncementLanguage CallAnnouncement { get; set; } = AnnouncementLanguage.Auto;
 }
 
 public class ProcessedMessage
@@ -179,6 +209,13 @@ public class AppSettings
 
     [Range(15, 3600)]
     public int PollIntervalSeconds { get; set; } = 60;
+
+    /// <summary>Handle Teams calls forwarded to the calling bot (needs the Calling:* configuration).</summary>
+    public bool ProcessCalls { get; set; }
+
+    /// <summary>Where calls go when no rule applies (E.164, e.g. your mobile). Empty = the call is declined.</summary>
+    [StringLength(32)]
+    public string? CallFallbackNumber { get; set; }
 
     /// <summary>Appended to every reply. Many companies require disclosing automated answers.</summary>
     public string? ReplyFooter { get; set; } = DefaultFooter;

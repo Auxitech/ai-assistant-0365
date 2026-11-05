@@ -33,16 +33,16 @@
             <select asp-for="Rule.MatchType" class="form-select" asp-items="Html.GetEnumSelectList<RuleMatchType>()"></select>
         </div>
         <div class="col-md-5">
-            <label class="form-label" asp-for="Rule.Pattern">Domain or address</label>
+            <label class="form-label" asp-for="Rule.Pattern">Domain, address or phone prefix</label>
             <input asp-for="Rule.Pattern" class="form-control" placeholder="cdb1.ch" />
             <span asp-validation-for="Rule.Pattern" class="text-danger small"></span>
-            <div class="form-text">Domain also matches subdomains. Ignored for CatchAll.</div>
+            <div class="form-text">Domain also matches subdomains. Phone prefix (calls only): <code>+4121</code> matches every number starting with it. Ignored for CatchAll.</div>
         </div>
         <div class="col-md-4"></div>
         <div class="col-md-8">
             <label class="form-label" asp-for="Rule.Exceptions">Exceptions</label>
             <textarea asp-for="Rule.Exceptions" class="form-control font-monospace" rows="2" placeholder="samuelrichoz@cdb1.ch&#10;direction.cdb1.ch"></textarea>
-            <div class="form-text">Addresses or domains this rule must <strong>not</strong> apply to (one per line, or comma-separated). They fall through to the next matching rule, usually your catch-all Ignore.</div>
+            <div class="form-text">Addresses or domains this rule must <strong>not</strong> apply to (one per line, or comma-separated). They fall through to the next matching rule, usually your catch-all Ignore. For calls you can also list phone prefixes such as <code>+41791234567</code> (no spaces).</div>
         </div>
         <div class="col-md-4"></div>
         <div class="col-md-4">
@@ -50,6 +50,7 @@
             <div>
                 <div class="form-check form-check-inline"><input asp-for="ChEmail" class="form-check-input" /><label asp-for="ChEmail" class="form-check-label">Email</label></div>
                 <div class="form-check form-check-inline"><input asp-for="ChTeams" class="form-check-input" /><label asp-for="ChTeams" class="form-check-label">Teams</label></div>
+                <div class="form-check form-check-inline"><input asp-for="ChCalls" class="form-check-input" /><label asp-for="ChCalls" class="form-check-label">Calls</label></div>
             </div>
         </div>
 
@@ -75,6 +76,26 @@
             <textarea asp-for="Rule.ReplyTemplate" class="form-control font-monospace" rows="8"></textarea>
             <span asp-validation-for="Rule.ReplyTemplate" class="text-danger small"></span>
             <div class="form-text">Placeholders: <code>{SenderName}</code> <code>{SenderEmail}</code> <code>{ForwardTo}</code> <code>{Subject}</code> <code>{Summary}</code> (AI summary). The footer from Settings is appended.</div>
+        </div>
+
+        <div class="col-12"><hr /><h5>Teams calls</h5>
+            <div class="form-text mt-0">Used when the <strong>Calls</strong> channel is ticked. Teams users from other organisations are matched by their domain; phone callers by a phone prefix rule or the catch-all.
+                Action <strong>Ignore</strong> sends the call to the fallback number from Settings. AI triage doesn't apply to calls.</div>
+        </div>
+        <div class="col-md-4">
+            <label class="form-label" asp-for="Rule.RedirectPhoneNumber">Transfer calls to</label>
+            <input asp-for="Rule.RedirectPhoneNumber" class="form-control font-monospace" placeholder="+41 21 123 45 67" />
+            <span asp-validation-for="Rule.RedirectPhoneNumber" class="text-danger small"></span>
+            <div class="form-text">International format with country code.</div>
+        </div>
+        <div class="col-md-8">
+            <label class="form-label" asp-for="Rule.CallAnnouncement">Announcement before the transfer</label>
+            <select asp-for="Rule.CallAnnouncement" class="form-select" asp-items="Html.GetEnumSelectList<AnnouncementLanguage>()"></select>
+            <div class="form-text">
+                Plays the recording for that language (upload them in <a asp-page="/Settings" fragment="calls">Settings</a>), then transfers.
+                Automatic uses the caller's Teams language, or guesses from the phone number (e.g. +41 21 → French, +41 44 → German); when unknown it plays FR → DE → EN.
+                If the chosen language isn't recorded, all available recordings are played.
+            </div>
         </div>
 
         <div class="col-12"><hr /><h5>AI</h5></div>

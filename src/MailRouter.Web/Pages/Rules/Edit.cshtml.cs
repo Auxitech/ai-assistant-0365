@@ -10,6 +10,7 @@ public class EditModel(AppDbContext db) : PageModel
     [BindProperty] public RoutingRule Rule { get; set; } = new();
     [BindProperty] public bool ChEmail { get; set; } = true;
     [BindProperty] public bool ChTeams { get; set; } = true;
+    [BindProperty] public bool ChCalls { get; set; }
 
     public async Task<IActionResult> OnGetAsync(int? id)
     {
@@ -20,6 +21,7 @@ public class EditModel(AppDbContext db) : PageModel
             Rule = r;
             ChEmail = r.Channels.HasFlag(ChannelFlags.Email);
             ChTeams = r.Channels.HasFlag(ChannelFlags.Teams);
+            ChCalls = r.Channels.HasFlag(ChannelFlags.Calls);
         }
         return Page();
     }
@@ -34,7 +36,12 @@ public class EditModel(AppDbContext db) : PageModel
         var exceptions = RuleMatcher.ParseList(Rule.Exceptions);
         Rule.Exceptions = exceptions.Count == 0 ? null : string.Join("\n", exceptions);
         Rule.Pattern = (Rule.Pattern ?? "").Trim().ToLowerInvariant().TrimStart('@', '*', '.');
-        Rule.Channels = (ChEmail ? ChannelFlags.Email : 0) | (ChTeams ? ChannelFlags.Teams : 0);
+        if (Rule.MatchType == RuleMatchType.Phone)
+            Rule.Pattern = RuleMatcher.NormalizePhone(Rule.Pattern) ?? Rule.Pattern;
+        Rule.Channels = (ChEmail ? ChannelFlags.Email : 0) | (ChTeams ? ChannelFlags.Teams : 0) | (ChCalls ? ChannelFlags.Calls : 0);
+        var messages = ChEmail || ChTeams;
+        var phone = RuleMatcher.NormalizePhone(Rule.RedirectPhoneNumber);
+        Rule.RedirectPhoneNumber = string.IsNullOrWhiteSpace(Rule.RedirectPhoneNumber) ? null : phone ?? Rule.RedirectPhoneNumber.Trim();
 
         if (Rule.Channels == ChannelFlags.None)
             ModelState.AddModelError("", "Select at least one channel.");
@@ -42,10 +49,16 @@ public class EditModel(AppDbContext db) : PageModel
             ModelState.AddModelError("Rule.Pattern", "Enter a domain like cdb1.ch");
         if (Rule.MatchType == RuleMatchType.Email && !Rule.Pattern.Contains('@'))
             ModelState.AddModelError("Rule.Pattern", "Enter a full email address.");
-        if (Rule.Action is RuleAction.ReplyAndForward or RuleAction.ForwardOnly && RuleMatcher.ParseAddresses(Rule.ForwardTo).Count == 0)
+        if (Rule.MatchType == RuleMatchType.Phone && RuleMatcher.NormalizePhone(Rule.Pattern) == null)
+            ModelState.AddModelError("Rule.Pattern", "Enter an international number or prefix, e.g. +4121 or +41211234567.");
+        if (Rule.MatchType == RuleMatchType.Phone && messages)
+            ModelState.AddModelError("", "Phone prefix rules only apply to calls: untick Email and Teams.");
+        if (messages && Rule.Action is RuleAction.ReplyAndForward or RuleAction.ForwardOnly && RuleMatcher.ParseAddresses(Rule.ForwardTo).Count == 0)
             ModelState.AddModelError("Rule.ForwardTo", "This action needs at least one forward address.");
-        if (Rule.Action is RuleAction.ReplyAndForward or RuleAction.ReplyOnly && string.IsNullOrWhiteSpace(Rule.ReplyTemplate))
+        if (messages && Rule.Action is RuleAction.ReplyAndForward or RuleAction.ReplyOnly && string.IsNullOrWhiteSpace(Rule.ReplyTemplate))
             ModelState.AddModelError("Rule.ReplyTemplate", "This action needs a reply template.");
+        if (ChCalls && Rule.Action != RuleAction.Ignore && !RuleMatcher.IsDialable(phone))
+            ModelState.AddModelError("Rule.RedirectPhoneNumber", "Enter the full international number calls are transferred to, e.g. +41 21 123 45 67.");
 
         if (!ModelState.IsValid) return Page();
 

@@ -8,6 +8,7 @@
 
   <ItemGroup>
     <PackageReference Include="Anthropic" Version="13.4.0" />
+    <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="10.0.14" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" Version="10.0.14" />
     <PackageReference Include="Microsoft.Identity.Client" Version="4.92.0" />
   </ItemGroup>

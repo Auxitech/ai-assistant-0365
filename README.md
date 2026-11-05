@@ -91,8 +91,40 @@ Manifests and a step-by-step guide are in [deploy/k8s/](deploy/k8s/README.md): `
 | `ANTHROPIC_API_KEY` | Claude API key. Optional; without it, AI triage and personalisation are skipped |
 | `ANTHROPIC__MODEL` | Default `claude-opus-5-5` (`claude-haiku-5-5` is much cheaper for high volume) |
 | `DataDirectory` | Default `/data` in the container |
+| `CALLING__APPSECRET` | Client secret of the same app registration, for the Teams calling bot (optional, see below) |
+| `CALLING__APPID` / `CALLING__TENANTID` | Only to use a different app registration for the bot. Default: the `GRAPH__` values |
+| `CALLING__PUBLICBASEURL` | Public HTTPS URL of this app, e.g. `https://mailrouter.auxitech.ch` (Teams calls back to it) |
 
 Everything else (dry-run, polling interval, Teams 1:1 only, footer, Outlook tag) is configured in the UI.
+
+## Teams calls (optional)
+
+Rules with the **Calls** channel can send your Teams calls to another number. The caller first hears a short recorded announcement, in the language set on the rule, and the call is then transferred. Without an announcement, the call is redirected straight away.
+
+How it works: in Teams you forward **unanswered** calls to a calling bot. The bot matches the caller against your rules:
+- **Matched:** it plays the announcement and transfers the call to the rule's number.
+- **No rule:** the call goes to the fallback number from Settings, or is declined.
+
+You can still pick up any call yourself before it's forwarded.
+
+Callers are matched like this:
+- **Your own colleagues:** by email address.
+- **Teams users from other organisations:** by their organisation's domain (address-level rules and exceptions can't apply to them).
+- **Phone callers:** by a *Phone prefix* rule (e.g. `+4121`), or by the catch-all.
+
+**Prerequisites** (tenant admin):
+1. On the **same app registration** as in step 1 of Setup:
+   - add a **client secret** (Certificates & secrets);
+   - add these **Application** permissions (API permissions → Microsoft Graph → Application permissions) and grant admin consent: `Calls.Initiate.All`, `Calls.AccessMedia.All`, `User.Read.All`, `CrossTenantInformation.ReadBasic.All`.
+
+   Keep "Allow public client flows" on. The mailbox sign-in keeps using the delegated permissions; only the bot uses the secret. `GRAPH__TENANTID` must be your tenant (domain or GUID), not `organizations`.
+2. An **Azure Bot** resource, created with **Use existing app registration** (type *Single Tenant*) and that app's client id, with the Microsoft Teams channel and **Calling** enabled. Set the webhook to `https://<your host>/api/calls/callback` (shown in Settings).
+3. A Teams **resource account** linked to the bot, with a **Teams Phone** licence and PSTN connectivity (Calling Plan, Operator Connect or Direct Routing). These are needed to transfer to outside phone numbers.
+4. In Teams → Settings → Calls: **If unanswered** → forward to that resource account.
+
+Then set the `CALLING__*` variables, upload the announcements in **Settings → Teams calls** (WAV, 16 kHz, 16-bit, mono), turn on **Handle Teams calls**, and tick **Calls** on the rules that should apply.
+
+In dry-run, calls are logged with what *would* have happened and then sent to the fallback number (or declined). Calls appear in the activity log with a 📞 icon. The callback endpoint only accepts requests signed by Microsoft for your bot. If you restrict the ingress to some IPs, leave `/api/calls/` reachable from Microsoft.
 
 ## Notes & limits
 

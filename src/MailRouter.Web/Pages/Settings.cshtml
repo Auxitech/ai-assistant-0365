@@ -102,6 +102,19 @@
                 <input asp-for="Input.HandledFolder" class="form-control" placeholder="AI-Routed" />
                 <div class="form-text">Use <code>/</code> for subfolders. Created if missing. Empty = leave in Inbox. A rule can override it.</div>
             </div>
+            <div class="col-md-6">
+                <div class="form-check form-switch">
+                    <input asp-for="Input.ProcessCalls" class="form-check-input" disabled="@(!Model.Calling.IsConfigured)" />
+                    <label asp-for="Input.ProcessCalls" class="form-check-label">Handle Teams calls (rules with the Calls channel)</label>
+                </div>
+                <div class="form-text">@(Model.Calling.IsConfigured ? "Calls forwarded to the calling bot are matched against your rules." : "Calling bot not configured: see the Teams calls section below.")</div>
+            </div>
+            <div class="col-md-6">
+                <label asp-for="Input.CallFallbackNumber" class="form-label">Calls with no matching rule go to</label>
+                <input asp-for="Input.CallFallbackNumber" class="form-control font-monospace" placeholder="+41 79 123 45 67" />
+                <span asp-validation-for="Input.CallFallbackNumber" class="text-danger small"></span>
+                <div class="form-text">E.g. your mobile. Empty = the call is declined. Also used in dry-run and when call handling is off.</div>
+            </div>
             <div class="col-12">
                 <label asp-for="Input.RedirectNotice" class="form-label">Redirect notice (added to replies when the message is forwarded)</label>
                 <textarea asp-for="Input.RedirectNotice" class="form-control" rows="7"></textarea>
@@ -133,3 +146,73 @@
         <div class="card-footer"><button class="btn btn-primary">Save</button></div>
     </div>
 </form>
+
+<div class="card my-3" id="calls" style="max-width:860px">
+    <div class="card-header">Teams calls: announcements</div>
+    <div class="card-body">
+        @if (!Model.Calling.IsConfigured)
+        {
+            <div class="alert alert-warning">
+                The calling bot is not configured. It uses the same app registration as Microsoft 365 above: add a client secret to it and set
+                <code>CALLING__APPSECRET</code> and <code>CALLING__PUBLICBASEURL</code> (https) in the container environment
+                (<code>GRAPH__TENANTID</code> must be your tenant, not <code>organizations</code>). See the "Teams calls" section of the README.
+            </div>
+        }
+        else
+        {
+            <p class="small">
+                Bot webhook (register it on the Azure Bot, Teams channel → Calling): <code>@Model.Calling.CallbackUrl</code><br />
+                Then in Teams → Settings → Calls, set <strong>If unanswered</strong> → forward to the bot's resource account.
+            </p>
+        }
+        <p class="small text-muted">
+            One recording per language, played before the call is transferred. Format required by Teams: <strong>WAV, PCM 16 kHz, 16-bit, mono</strong>
+            (e.g. <code>ffmpeg -i in.m4a -ar 16000 -ac 1 -c:a pcm_s16le fr.wav</code>). Keep it short; the caller waits while it plays.
+        </p>
+        @{
+            var scripts = new (string Lang, string Name, string Text)[]
+            {
+                ("fr", "French", "Bonjour, vous êtes bien chez l'assistant de [votre nom]. Les demandes ne sont pas traitées par téléphone : je vous transfère vers le support, qui prendra votre demande en charge. Merci de patienter."),
+                ("de", "German", "Guten Tag, Sie sind mit dem Assistenten von [Ihr Name] verbunden. Anfragen werden nicht telefonisch bearbeitet: Ich verbinde Sie mit dem Support, der sich um Ihr Anliegen kümmert. Bitte bleiben Sie dran."),
+                ("en", "English", "Hello, you've reached [your name]'s assistant. Requests aren't handled by phone: I'm transferring you to the support team, who will take care of your request. Please hold."),
+            };
+        }
+        <table class="table table-sm align-middle mb-0">
+            <thead><tr><th>Language</th><th>Recording</th><th>Upload / replace</th><th></th></tr></thead>
+            <tbody>
+            @foreach (var s in scripts)
+            {
+                var info = Model.Prompt(s.Lang);
+                <tr>
+                    <td>
+                        <strong>@s.Name</strong>
+                        <div class="small text-muted" style="max-width:260px">Suggested text: “@s.Text”</div>
+                    </td>
+                    <td class="small">
+                        @if (info == null) { <span class="text-muted">none</span> }
+                        else
+                        {
+                            <audio controls preload="none" src="/api/calls/prompts/@(s.Lang).wav?v=@info.Updated.Ticks" style="max-width:220px"></audio>
+                            <div class="text-muted">@info.Duration.TotalSeconds.ToString("0.0") s · @info.Updated.ToLocalTime().ToString("dd.MM.yyyy HH:mm")</div>
+                        }
+                    </td>
+                    <td>
+                        <form method="post" asp-page-handler="UploadPrompt" asp-route-lang="@s.Lang" enctype="multipart/form-data" class="d-flex gap-1">
+                            <input type="file" name="file" accept=".wav,audio/wav" class="form-control form-control-sm" />
+                            <button class="btn btn-sm btn-outline-primary">Upload</button>
+                        </form>
+                    </td>
+                    <td>
+                        @if (info != null)
+                        {
+                            <form method="post" asp-page-handler="DeletePrompt" asp-route-lang="@s.Lang" onsubmit="return confirm('Remove this recording?')">
+                                <button class="btn btn-sm btn-outline-danger">Remove</button>
+                            </form>
+                        }
+                    </td>
+                </tr>
+            }
+            </tbody>
+        </table>
+    </div>
+</div>

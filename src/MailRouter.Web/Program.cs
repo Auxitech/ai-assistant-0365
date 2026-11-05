@@ -33,6 +33,25 @@ builder.Services.AddHttpClient<GraphClient>();
 builder.Services.AddScoped<ProcessingService>();
 builder.Services.AddHostedService<PollingWorker>();
 
+// Teams calling bot (optional): separate app registration with application permissions.
+// By default the bot uses the SAME app registration as Graph (GRAPH__CLIENTID / GRAPH__TENANTID):
+// only CALLING__APPSECRET and CALLING__PUBLICBASEURL are needed. CALLING__APPID/TENANTID can still override.
+var callingAppId = FirstNonEmpty(builder.Configuration["Calling:AppId"], builder.Configuration["Graph:ClientId"]);
+var callingTenant = FirstNonEmpty(builder.Configuration["Calling:TenantId"],
+    builder.Configuration["Graph:TenantId"] is { } gt && gt is not ("organizations" or "common" or "consumers") ? gt : null);
+builder.Services.Configure<CallingOptions>(builder.Configuration.GetSection("Calling"));
+builder.Services.PostConfigure<CallingOptions>(o =>
+{
+    o.AppId = callingAppId;
+    o.TenantId = callingTenant;
+});
+builder.Services.AddHttpClient(nameof(CallingGraphClient));
+builder.Services.AddSingleton(sp => ActivatorUtilities.CreateInstance<CallingGraphClient>(sp,
+    sp.GetRequiredService<IHttpClientFactory>().CreateClient(nameof(CallingGraphClient))));
+builder.Services.AddSingleton<CallPromptStore>();
+builder.Services.AddSingleton<CallingService>();
+builder.Services.AddHostedService(sp => sp.GetRequiredService<CallingService>());
+
 // Keep login cookies valid across container restarts.
 builder.Services.AddDataProtection().PersistKeysToFileSystem(new DirectoryInfo(Path.Combine(dataDir, "keys")));
 
@@ -42,8 +61,19 @@ builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationSc
         o.LoginPath = "/Login";
         o.ExpireTimeSpan = TimeSpan.FromDays(7);
         o.SlidingExpiration = true;
+    })
+    // Teams signs every call notification; only Microsoft's tokens for our bot are accepted.
+    .AddJwtBearer(TeamsCallingScheme, o =>
+    {
+        o.MetadataAddress = "https://api.aps.skype.com/v1/.well-known/OpenIdConfiguration";
+        o.MapInboundClaims = false;
+        o.TokenValidationParameters = new Microsoft.IdentityModel.Tokens.TokenValidationParameters
+        {
+            ValidIssuers = ["https://graph.microsoft.com", "https://api.botframework.com"],
+            ValidAudience = callingAppId,
+        };
     });
-builder.Services.AddAuthorization();
+builder.Services.AddAuthorization(o => o.AddPolicy(TeamsCallingScheme, p => p.AddAuthenticationSchemes(TeamsCallingScheme).RequireAuthenticatedUser()));
 builder.Services.AddRazorPages(o =>
 {
     o.Conventions.AuthorizeFolder("/");
@@ -91,6 +121,10 @@ using (var scope = app.Services.CreateScope())
         EnsureColumn("Settings", "MarkTeamsAsRead", "INTEGER NOT NULL DEFAULT 1");
         EnsureColumn("Settings", "HandledFolder", "TEXT NULL DEFAULT 'AI-Routed'");
         EnsureColumn("Rules", "MoveToFolder", "TEXT NULL");
+        EnsureColumn("Rules", "RedirectPhoneNumber", "TEXT NULL");
+        EnsureColumn("Rules", "CallAnnouncement", "INTEGER NOT NULL DEFAULT 1");
+        EnsureColumn("Settings", "ProcessCalls", "INTEGER NOT NULL DEFAULT 0");
+        EnsureColumn("Settings", "CallFallbackNumber", "TEXT NULL");
     }
 
     // One-time upgrade: replace the old English-only footer with the FR/DE/EN one, unless it was customised.
@@ -117,4 +151,25 @@ app.UseAuthorization();
 app.MapRazorPages();
 app.MapGet("/health", () => Results.Ok("ok")).AllowAnonymous();
 
+// Teams calling bot webhook: register {Calling:PublicBaseUrl}/api/calls/callback on the Azure Bot (Teams channel, calling).
+app.MapPost("/api/calls/callback", async (HttpRequest req, CallingService calls) =>
+{
+    if (!calls.IsConfigured) return Results.StatusCode(StatusCodes.Status503ServiceUnavailable);
+    var payload = await System.Text.Json.Nodes.JsonNode.ParseAsync(req.Body);
+    if (payload != null) calls.Enqueue(payload);
+    return Results.Accepted();
+}).RequireAuthorization(TeamsCallingScheme);
+
+// Announcement recordings, fetched by Teams when it plays them (public, contain no personal data).
+app.MapGet("/api/calls/prompts/{lang}.wav", (string lang, CallPromptStore store) =>
+    store.PathFor(lang) is { } path ? Results.File(path, "audio/wav") : Results.NotFound()).AllowAnonymous();
+
 app.Run();
+
+partial class Program
+{
+    private const string TeamsCallingScheme = "TeamsCalling";
+
+    private static string FirstNonEmpty(params string?[] values) =>
+        values.FirstOrDefault(v => !string.IsNullOrWhiteSpace(v))?.Trim() ?? "";
+}
